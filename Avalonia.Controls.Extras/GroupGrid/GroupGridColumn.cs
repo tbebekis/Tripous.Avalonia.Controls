@@ -120,6 +120,10 @@ public class GroupGridColumn
     /// </summary>
     public string DisplayFormat { get; set; } = string.Empty;
     /// <summary>
+    /// Gets or sets the horizontal alignment used when drawing cell text.
+    /// </summary>
+    public GroupGridCellHorizontalAlignment HorizontalAlignment { get; set; }
+    /// <summary>
     /// Gets or sets the group summary aggregate kind.
     /// </summary>
     public GroupGridAggregateKind GroupSummary { get; set; }

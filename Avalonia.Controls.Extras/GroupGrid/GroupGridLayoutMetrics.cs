@@ -50,4 +50,20 @@ public class GroupGridLayoutMetrics
     /// Gets or sets the column resize handle hit-test width.
     /// </summary>
     public double ColumnResizeHandleWidth { get; set; } = 5;
+    /// <summary>
+    /// Gets or sets the vertical scroll bar width.
+    /// </summary>
+    public double VerticalScrollBarWidth { get; set; } = 14;
+    /// <summary>
+    /// Gets or sets the minimum vertical scroll thumb height.
+    /// </summary>
+    public double VerticalScrollThumbMinHeight { get; set; } = 24;
+    /// <summary>
+    /// Gets or sets the horizontal scroll bar height.
+    /// </summary>
+    public double HorizontalScrollBarHeight { get; set; } = 14;
+    /// <summary>
+    /// Gets or sets the minimum horizontal scroll thumb width.
+    /// </summary>
+    public double HorizontalScrollThumbMinWidth { get; set; } = 24;
 }

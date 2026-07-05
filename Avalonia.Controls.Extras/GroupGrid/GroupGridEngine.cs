@@ -13,6 +13,7 @@ public class GroupGridEngine
     GroupGridCell fSelectedCell = GroupGridCell.Empty;
     GroupGridCell fEditingCell = GroupGridCell.Empty;
     GroupGridViewport fViewport = GroupGridViewport.Empty;
+    double fBodyHeight;
 
     // ● private methods
     void Columns_CollectionChanged(object Sender, NotifyCollectionChangedEventArgs Args)
@@ -1052,7 +1053,7 @@ public class GroupGridEngine
             return CreateColumnHitTestResult(X, Y, GroupGridBand.FilterRow, GroupGridHitTestKind.FilterCell, GetVisibleValueColumns());
 
         Top = Bottom;
-        Bottom = Top + (fViewport.Count * LayoutMetrics.RowHeight);
+        Bottom = Top + Math.Max(fBodyHeight, fViewport.Count * LayoutMetrics.RowHeight);
         if (Y < Bottom)
             return CreateBodyHitTestResult(X, Y, Top);
 
@@ -1115,10 +1116,29 @@ public class GroupGridEngine
     /// <returns>True if the viewport changed; otherwise, false.</returns>
     public bool SetViewport(GroupGridViewport Viewport)
     {
+        return SetViewport(Viewport, fViewport.Count * LayoutMetrics.RowHeight);
+    }
+    /// <summary>
+    /// Sets the viewport window and the rendered body height.
+    /// </summary>
+    /// <param name="Viewport">The viewport.</param>
+    /// <param name="BodyHeight">The rendered body height.</param>
+    /// <returns>True if the viewport or body height changed; otherwise, false.</returns>
+    public bool SetViewport(GroupGridViewport Viewport, double BodyHeight)
+    {
         if (Viewport == fViewport)
-            return false;
+        {
+            double NewBodyHeight = Math.Max(0, BodyHeight);
+            if (Math.Abs(NewBodyHeight - fBodyHeight) < 0.1)
+                return false;
+
+            fBodyHeight = NewBodyHeight;
+            ViewportChanged?.Invoke(this, EventArgs.Empty);
+            return true;
+        }
 
         fViewport = Viewport;
+        fBodyHeight = Math.Max(0, BodyHeight);
         ViewportChanged?.Invoke(this, EventArgs.Empty);
         return true;
     }
@@ -1192,6 +1212,10 @@ public class GroupGridEngine
     /// Gets the viewport window into the logical visible-node list.
     /// </summary>
     public GroupGridViewport Viewport => fViewport;
+    /// <summary>
+    /// Gets the rendered body height used for hit testing.
+    /// </summary>
+    public double BodyHeight => fBodyHeight;
     /// <summary>
     /// Gets the layout metrics used by non-visual hit testing.
     /// </summary>

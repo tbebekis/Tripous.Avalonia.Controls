@@ -19,6 +19,8 @@ public class GroupGrid: Control
     static readonly IBrush fFooterBrush = new SolidColorBrush(Color.FromRgb(238, 240, 242));
     static readonly IBrush fTextBrush = new SolidColorBrush(Color.FromRgb(32, 37, 42));
     static readonly IBrush fMutedTextBrush = new SolidColorBrush(Color.FromRgb(84, 91, 99));
+    static readonly IBrush fScrollBarTrackBrush = new SolidColorBrush(Color.FromRgb(244, 246, 248));
+    static readonly IBrush fScrollBarThumbBrush = new SolidColorBrush(Color.FromRgb(188, 196, 205));
     static readonly Pen fLinePen = new(new SolidColorBrush(Color.FromRgb(211, 216, 222)), 1);
     static readonly Pen fCurrentPen = new(new SolidColorBrush(Color.FromRgb(64, 122, 190)), 1);
     static readonly Pen fEditingPen = new(new SolidColorBrush(Color.FromRgb(194, 105, 0)), 2);
@@ -27,6 +29,12 @@ public class GroupGrid: Control
     IDisposable fOwnedDataAdapter;
     int fFirstVisibleNodeIndex;
     bool fAutoGenerateColumns;
+    bool fIsVerticalScrollDragging;
+    bool fIsHorizontalScrollDragging;
+    double fVerticalScrollDragOffset;
+    double fHorizontalScrollDragOffset;
+    double fHorizontalOffset;
+    bool fHasHorizontalScrollBar;
 
     // ● private methods
     void Engine_Changed(object Sender, EventArgs Args)
@@ -73,16 +81,34 @@ public class GroupGrid: Control
         if (fEngine == null)
             return;
 
+        double ContentWidth = Math.Max(0, Size.Width);
         double BodyHeight = Math.Max(0, Size.Height - FixedBandHeight);
+        fHasHorizontalScrollBar = NeedsHorizontalScrollBar(ContentWidth);
+        if (fHasHorizontalScrollBar)
+            BodyHeight = Math.Max(0, BodyHeight - fEngine.LayoutMetrics.HorizontalScrollBarHeight);
+
         int Count = fEngine.LayoutMetrics.RowHeight <= 0
             ? 0
             : Math.Min(fEngine.VisibleNodeCount, (int)Math.Floor(BodyHeight / fEngine.LayoutMetrics.RowHeight));
+        bool HasVerticalScrollBar = fEngine.VisibleNodeCount > Count && fEngine.LayoutMetrics.VerticalScrollBarWidth > 0;
+        ContentWidth = Math.Max(0, Size.Width - (HasVerticalScrollBar ? fEngine.LayoutMetrics.VerticalScrollBarWidth : 0));
+        bool NeedsHorizontal = NeedsHorizontalScrollBar(ContentWidth);
+        if (NeedsHorizontal != fHasHorizontalScrollBar)
+        {
+            fHasHorizontalScrollBar = NeedsHorizontal;
+            BodyHeight = Math.Max(0, Size.Height - FixedBandHeight - (fHasHorizontalScrollBar ? fEngine.LayoutMetrics.HorizontalScrollBarHeight : 0));
+            Count = fEngine.LayoutMetrics.RowHeight <= 0
+                ? 0
+                : Math.Min(fEngine.VisibleNodeCount, (int)Math.Floor(BodyHeight / fEngine.LayoutMetrics.RowHeight));
+        }
+
         fFirstVisibleNodeIndex = ClampFirstVisibleNodeIndex(fFirstVisibleNodeIndex, Count);
+        ClampHorizontalOffset(ContentWidth);
         GroupGridViewport Viewport = Count <= 0
             ? GroupGridViewport.Empty
             : new GroupGridViewport(fFirstVisibleNodeIndex, fFirstVisibleNodeIndex + Count - 1);
 
-        fEngine.SetViewport(Viewport);
+        fEngine.SetViewport(Viewport, BodyHeight);
     }
     int ClampFirstVisibleNodeIndex(int Value, int ViewportCount)
     {
@@ -109,14 +135,48 @@ public class GroupGrid: Control
         if (fEngine == null || fEngine.CurrentCell.IsEmpty || fEngine.Viewport.IsEmpty)
             return false;
 
+        bool Result = false;
         int VisibleNodeIndex = fEngine.IndexOfVisibleRow(fEngine.CurrentCell.RowIndex);
-        if (VisibleNodeIndex < 0)
+        if (VisibleNodeIndex >= 0)
+        {
+            if (VisibleNodeIndex < fEngine.Viewport.FirstVisibleNodeIndex)
+                Result = SetFirstVisibleNodeIndexCore(VisibleNodeIndex);
+            else if (VisibleNodeIndex > fEngine.Viewport.LastVisibleNodeIndex)
+                Result = SetFirstVisibleNodeIndexCore(VisibleNodeIndex - fEngine.Viewport.Count + 1);
+        }
+
+        Result = ScrollCurrentColumnIntoViewCore() || Result;
+        return Result;
+    }
+    double GetColumnLeft(GroupGridColumn Column)
+    {
+        double Result = 0;
+        foreach (GroupGridColumn Item in fEngine.GetVisibleValueColumns())
+        {
+            if (ReferenceEquals(Item, Column))
+                return Result;
+
+            Result += Math.Max(Item.MinWidth, Item.Width);
+        }
+
+        return -1;
+    }
+    bool ScrollCurrentColumnIntoViewCore()
+    {
+        if (fEngine == null || fEngine.CurrentCell.IsEmpty || !HasHorizontalScrollBar())
             return false;
 
-        if (VisibleNodeIndex < fEngine.Viewport.FirstVisibleNodeIndex)
-            return SetFirstVisibleNodeIndexCore(VisibleNodeIndex);
-        if (VisibleNodeIndex > fEngine.Viewport.LastVisibleNodeIndex)
-            return SetFirstVisibleNodeIndexCore(VisibleNodeIndex - fEngine.Viewport.Count + 1);
+        double ColumnLeft = GetColumnLeft(fEngine.CurrentCell.Column);
+        if (ColumnLeft < 0)
+            return false;
+
+        double ColumnWidth = Math.Max(fEngine.CurrentCell.Column.MinWidth, fEngine.CurrentCell.Column.Width);
+        double ColumnRight = ColumnLeft + ColumnWidth;
+        double ContentWidth = GetBodyContentWidth();
+        if (ColumnLeft < fHorizontalOffset)
+            return SetHorizontalOffsetCore(ColumnLeft);
+        if (ColumnRight > fHorizontalOffset + ContentWidth)
+            return SetHorizontalOffsetCore(ColumnRight - ContentWidth);
 
         return false;
     }
@@ -133,6 +193,153 @@ public class GroupGrid: Control
         UpdateViewport(Bounds.Size);
         InvalidateVisual();
         return true;
+    }
+    double GetTotalColumnsWidth()
+    {
+        if (fEngine == null)
+            return 0;
+
+        return fEngine.GetVisibleValueColumns().Sum(Column => Math.Max(Column.MinWidth, Column.Width));
+    }
+    bool NeedsHorizontalScrollBar(double ContentWidth)
+    {
+        return fEngine != null
+               && fEngine.LayoutMetrics.HorizontalScrollBarHeight > 0
+               && GetTotalColumnsWidth() > Math.Max(0, ContentWidth) + 0.1;
+    }
+    bool HasHorizontalScrollBar()
+    {
+        return fHasHorizontalScrollBar;
+    }
+    void ClampHorizontalOffset(double ContentWidth)
+    {
+        double Max = Math.Max(0, GetTotalColumnsWidth() - Math.Max(0, ContentWidth));
+        if (fHorizontalOffset < 0)
+            fHorizontalOffset = 0;
+        if (fHorizontalOffset > Max)
+            fHorizontalOffset = Max;
+    }
+    bool SetHorizontalOffsetCore(double Value)
+    {
+        if (fEngine == null)
+            return false;
+
+        double ContentWidth = GetBodyContentWidth();
+        double Max = Math.Max(0, GetTotalColumnsWidth() - ContentWidth);
+        double NewValue = Math.Clamp(Value, 0, Max);
+        if (Math.Abs(NewValue - fHorizontalOffset) < 0.1)
+            return false;
+
+        fHorizontalOffset = NewValue;
+        InvalidateVisual();
+        return true;
+    }
+    bool HasVerticalScrollBar()
+    {
+        return fEngine != null
+               && !fEngine.Viewport.IsEmpty
+               && fEngine.VisibleNodeCount > fEngine.Viewport.Count
+               && fEngine.LayoutMetrics.VerticalScrollBarWidth > 0;
+    }
+    double GetBodyTop()
+    {
+        if (fEngine == null)
+            return 0;
+
+        return fEngine.LayoutMetrics.ToolBarHeight
+               + fEngine.LayoutMetrics.GroupPanelHeight
+               + fEngine.LayoutMetrics.ColumnHeaderHeight
+               + fEngine.LayoutMetrics.FilterRowHeight;
+    }
+    double GetBodyHeight()
+    {
+        if (fEngine == null)
+            return 0;
+
+        return Math.Max(0, Bounds.Height - GetBodyTop() - fEngine.LayoutMetrics.FooterSummaryHeight - GetHorizontalScrollBarHeight());
+    }
+    double GetBodyContentWidth()
+    {
+        if (fEngine == null)
+            return Bounds.Width;
+
+        double ScrollBarWidth = HasVerticalScrollBar() ? fEngine.LayoutMetrics.VerticalScrollBarWidth : 0;
+        return Math.Max(0, Bounds.Width - ScrollBarWidth);
+    }
+    double GetHorizontalScrollBarHeight()
+    {
+        return HasHorizontalScrollBar() ? fEngine.LayoutMetrics.HorizontalScrollBarHeight : 0;
+    }
+    Rect GetVerticalScrollTrackRect()
+    {
+        if (!HasVerticalScrollBar())
+            return default;
+
+        double Width = fEngine.LayoutMetrics.VerticalScrollBarWidth;
+        return new Rect(Math.Max(0, Bounds.Width - Width), GetBodyTop(), Width, GetBodyHeight());
+    }
+    Rect GetVerticalScrollThumbRect()
+    {
+        Rect TrackRect = GetVerticalScrollTrackRect();
+        if (TrackRect.Width <= 0 || TrackRect.Height <= 0)
+            return default;
+
+        double ThumbHeight = Math.Max(fEngine.LayoutMetrics.VerticalScrollThumbMinHeight, TrackRect.Height * fEngine.Viewport.Count / fEngine.VisibleNodeCount);
+        ThumbHeight = Math.Min(TrackRect.Height, ThumbHeight);
+        int MaxFirstVisibleNodeIndex = Math.Max(0, fEngine.VisibleNodeCount - fEngine.Viewport.Count);
+        double Top = TrackRect.Y;
+        if (MaxFirstVisibleNodeIndex > 0 && TrackRect.Height > ThumbHeight)
+            Top += (TrackRect.Height - ThumbHeight) * fFirstVisibleNodeIndex / MaxFirstVisibleNodeIndex;
+
+        return new Rect(TrackRect.X + 2, Top + 2, Math.Max(0, TrackRect.Width - 4), Math.Max(0, ThumbHeight - 4));
+    }
+    bool SetFirstVisibleNodeIndexFromVerticalScroll(double Y)
+    {
+        Rect TrackRect = GetVerticalScrollTrackRect();
+        Rect ThumbRect = GetVerticalScrollThumbRect();
+        int MaxFirstVisibleNodeIndex = Math.Max(0, fEngine.VisibleNodeCount - fEngine.Viewport.Count);
+        double Range = TrackRect.Height - ThumbRect.Height;
+        if (Range <= 0 || MaxFirstVisibleNodeIndex <= 0)
+            return false;
+
+        double Ratio = (Y - TrackRect.Y - fVerticalScrollDragOffset) / Range;
+        int NewFirstVisibleNodeIndex = (int)Math.Round(Math.Clamp(Ratio, 0, 1) * MaxFirstVisibleNodeIndex);
+        return SetFirstVisibleNodeIndexCore(NewFirstVisibleNodeIndex);
+    }
+    Rect GetHorizontalScrollTrackRect()
+    {
+        if (!HasHorizontalScrollBar())
+            return default;
+
+        return new Rect(0, GetBodyTop() + GetBodyHeight() + fEngine.LayoutMetrics.FooterSummaryHeight, GetBodyContentWidth(), fEngine.LayoutMetrics.HorizontalScrollBarHeight);
+    }
+    Rect GetHorizontalScrollThumbRect()
+    {
+        Rect TrackRect = GetHorizontalScrollTrackRect();
+        if (TrackRect.Width <= 0 || TrackRect.Height <= 0)
+            return default;
+
+        double TotalWidth = GetTotalColumnsWidth();
+        double ThumbWidth = Math.Max(fEngine.LayoutMetrics.HorizontalScrollThumbMinWidth, TrackRect.Width * TrackRect.Width / TotalWidth);
+        ThumbWidth = Math.Min(TrackRect.Width, ThumbWidth);
+        double MaxOffset = Math.Max(0, TotalWidth - TrackRect.Width);
+        double Left = TrackRect.X;
+        if (MaxOffset > 0 && TrackRect.Width > ThumbWidth)
+            Left += (TrackRect.Width - ThumbWidth) * fHorizontalOffset / MaxOffset;
+
+        return new Rect(Left + 2, TrackRect.Y + 2, Math.Max(0, ThumbWidth - 4), Math.Max(0, TrackRect.Height - 4));
+    }
+    bool SetHorizontalOffsetFromScroll(double X)
+    {
+        Rect TrackRect = GetHorizontalScrollTrackRect();
+        Rect ThumbRect = GetHorizontalScrollThumbRect();
+        double MaxOffset = Math.Max(0, GetTotalColumnsWidth() - TrackRect.Width);
+        double Range = TrackRect.Width - ThumbRect.Width;
+        if (Range <= 0 || MaxOffset <= 0)
+            return false;
+
+        double Ratio = (X - TrackRect.X - fHorizontalScrollDragOffset) / Range;
+        return SetHorizontalOffsetCore(Math.Clamp(Ratio, 0, 1) * MaxOffset);
     }
     Type FindListItemType(object ItemsSource)
     {
@@ -236,7 +443,19 @@ public class GroupGrid: Control
         Result.Trimming = TextTrimming.CharacterEllipsis;
         return Result;
     }
-    void DrawText(DrawingContext Context, string Text, Rect Rect, IBrush Brush, FontWeight Weight = FontWeight.Normal)
+    double GetTextX(Rect Rect, FormattedText Text, GroupGridCellHorizontalAlignment Alignment)
+    {
+        switch (Alignment)
+        {
+            case GroupGridCellHorizontalAlignment.Center:
+                return Rect.X + Math.Max(4, (Rect.Width - Text.Width) / 2);
+            case GroupGridCellHorizontalAlignment.Right:
+                return Rect.Right - Text.Width - 4;
+        }
+
+        return Rect.X + 4;
+    }
+    void DrawText(DrawingContext Context, string Text, Rect Rect, IBrush Brush, FontWeight Weight = FontWeight.Normal, GroupGridCellHorizontalAlignment Alignment = GroupGridCellHorizontalAlignment.Left)
     {
         if (string.IsNullOrEmpty(Text) || Rect.Width <= 4 || Rect.Height <= 4)
             return;
@@ -244,28 +463,66 @@ public class GroupGrid: Control
         using (Context.PushClip(Rect))
         {
             FormattedText FormattedText = CreateText(Text, Brush, Rect.Width - 8, Weight);
+            double X = GetTextX(Rect, FormattedText, Alignment);
             double Y = Rect.Y + Math.Max(2, (Rect.Height - FormattedText.Height) / 2);
-            Context.DrawText(FormattedText, new Point(Rect.X + 4, Y));
+            Context.DrawText(FormattedText, new Point(X, Y));
         }
     }
     void DrawBand(DrawingContext Context, Rect Rect, IBrush Brush)
     {
         Context.DrawRectangle(Brush, fLinePen, Rect);
     }
-    double DrawColumns(DrawingContext Context, double Y, double Height, IBrush Brush, bool DrawFilterText)
+    void DrawExpander(DrawingContext Context, Rect Rect, bool IsExpanded)
     {
-        double X = 0;
-        foreach (GroupGridColumn Column in fEngine.GetVisibleValueColumns())
-        {
-            double Width = Math.Max(Column.MinWidth, Column.Width);
-            Rect Rect = new(X, Y, Width, Height);
-            DrawBand(Context, Rect, Brush);
+        double Size = Math.Min(10, Math.Max(6, Math.Min(Rect.Width, Rect.Height) - 8));
+        double CenterX = Rect.X + (Rect.Width / 2);
+        double CenterY = Rect.Y + (Rect.Height / 2);
+        StreamGeometry Geometry = new();
 
-            string Text = DrawFilterText
-                ? string.Empty
-                : string.IsNullOrWhiteSpace(Column.Header) ? Column.Name : Column.Header;
-            DrawText(Context, Text, Rect, fTextBrush, FontWeight.SemiBold);
-            X += Width;
+        using (StreamGeometryContext GeometryContext = Geometry.Open())
+        {
+            if (IsExpanded)
+            {
+                GeometryContext.BeginFigure(new Point(CenterX - (Size / 2), CenterY - (Size / 4)), true);
+                GeometryContext.LineTo(new Point(CenterX + (Size / 2), CenterY - (Size / 4)));
+                GeometryContext.LineTo(new Point(CenterX, CenterY + (Size / 2)));
+            }
+            else
+            {
+                GeometryContext.BeginFigure(new Point(CenterX - (Size / 4), CenterY - (Size / 2)), true);
+                GeometryContext.LineTo(new Point(CenterX - (Size / 4), CenterY + (Size / 2)));
+                GeometryContext.LineTo(new Point(CenterX + (Size / 2), CenterY));
+            }
+
+            GeometryContext.EndFigure(true);
+        }
+
+        Context.DrawGeometry(fMutedTextBrush, null, Geometry);
+    }
+    double DrawColumns(DrawingContext Context, double Y, double Height, double ContentWidth, IBrush Brush, bool DrawFilterText)
+    {
+        double X = -fHorizontalOffset;
+        using (Context.PushClip(new Rect(0, Y, ContentWidth, Height)))
+        {
+            foreach (GroupGridColumn Column in fEngine.GetVisibleValueColumns())
+            {
+                double ColumnWidth = Math.Max(Column.MinWidth, Column.Width);
+                if (X >= ContentWidth)
+                    break;
+
+                if (X + ColumnWidth > 0)
+                {
+                    Rect Rect = new(X, Y, ColumnWidth, Height);
+                    DrawBand(Context, Rect, Brush);
+
+                    string Text = DrawFilterText
+                        ? string.Empty
+                        : string.IsNullOrWhiteSpace(Column.Header) ? Column.Name : Column.Header;
+                    DrawText(Context, Text, Rect, fTextBrush, FontWeight.SemiBold);
+                }
+
+                X += ColumnWidth;
+            }
         }
 
         return X;
@@ -309,49 +566,93 @@ public class GroupGrid: Control
 
         double X = Math.Max(0, RowInfo.Level) * fEngine.LayoutMetrics.GroupIndentWidth;
         Rect ExpanderRect = new(X, RowRect.Y, fEngine.LayoutMetrics.GroupExpanderWidth, RowRect.Height);
-        string Expander = RowInfo.IsExpanded ? "-" : "+";
-        DrawText(Context, Expander, ExpanderRect, fMutedTextBrush, FontWeight.SemiBold);
+        DrawExpander(Context, ExpanderRect, RowInfo.IsExpanded);
         DrawText(Context, fEngine.GetGroupHeaderText(VisibleNodeIndex), new Rect(ExpanderRect.Right, RowRect.Y, RowRect.Width - ExpanderRect.Right, RowRect.Height), fTextBrush, FontWeight.SemiBold);
     }
     void DrawValueRow(DrawingContext Context, Rect RowRect, int VisibleNodeIndex, GroupGridRowInfo RowInfo)
     {
         IBrush RowBrush = RowInfo.IsGroupSummary ? fGroupSummaryBrush : fBackgroundBrush;
+        if (IsSelectedRow(RowInfo))
+            RowBrush = fSelectedBrush;
+
         DrawBand(Context, RowRect, RowBrush);
 
-        double X = 0;
-        foreach (GroupGridColumn Column in fEngine.GetVisibleValueColumns())
+        double X = -fHorizontalOffset;
+        using (Context.PushClip(RowRect))
         {
-            double Width = Math.Max(Column.MinWidth, Column.Width);
-            Rect CellRect = new(X, RowRect.Y, Width, RowRect.Height);
-            IBrush CellBrush = RowBrush;
-            if (IsSelectedRow(RowInfo))
-                CellBrush = fSelectedBrush;
-            if (IsCurrentCell(RowInfo, Column))
-                CellBrush = fCurrentBrush;
-            if (IsEditingCell(RowInfo, Column))
-                CellBrush = fEditingBrush;
+            foreach (GroupGridColumn Column in fEngine.GetVisibleValueColumns())
+            {
+                double Width = Math.Max(Column.MinWidth, Column.Width);
+                if (X >= RowRect.Width)
+                    break;
 
-            Context.DrawRectangle(CellBrush, fLinePen, CellRect);
-            DrawText(Context, fEngine.GetDisplayText(VisibleNodeIndex, Column), CellRect, RowInfo.IsGroupSummary ? fMutedTextBrush : fTextBrush);
+                if (X + Width > 0)
+                {
+                    Rect CellRect = new(X, RowRect.Y, Width, RowRect.Height);
+                    IBrush CellBrush = RowBrush;
+                    if (IsSelectedRow(RowInfo))
+                        CellBrush = fSelectedBrush;
+                    if (IsCurrentCell(RowInfo, Column))
+                        CellBrush = fCurrentBrush;
+                    if (IsEditingCell(RowInfo, Column))
+                        CellBrush = fEditingBrush;
 
-            if (IsCurrentCell(RowInfo, Column))
-                Context.DrawRectangle(null, fCurrentPen, CellRect);
-            if (IsEditingCell(RowInfo, Column))
-                Context.DrawRectangle(null, fEditingPen, InsetRect(CellRect, 1));
+                    Context.DrawRectangle(CellBrush, fLinePen, CellRect);
+                    DrawText(Context, fEngine.GetDisplayText(VisibleNodeIndex, Column), CellRect, RowInfo.IsGroupSummary ? fMutedTextBrush : fTextBrush, FontWeight.Normal, Column.HorizontalAlignment);
 
-            X += Width;
+                    if (IsCurrentCell(RowInfo, Column))
+                        Context.DrawRectangle(null, fCurrentPen, CellRect);
+                    if (IsEditingCell(RowInfo, Column))
+                        Context.DrawRectangle(null, fEditingPen, InsetRect(CellRect, 1));
+                }
+
+                X += Width;
+            }
         }
     }
-    void DrawFooter(DrawingContext Context, double Y, double Height)
+    void DrawVerticalScrollBar(DrawingContext Context)
     {
-        double X = 0;
-        foreach (GroupGridColumn Column in fEngine.GetVisibleValueColumns())
+        if (!HasVerticalScrollBar())
+            return;
+
+        Rect TrackRect = GetVerticalScrollTrackRect();
+        Rect ThumbRect = GetVerticalScrollThumbRect();
+        Context.DrawRectangle(fScrollBarTrackBrush, fLinePen, TrackRect);
+        Context.DrawRectangle(fScrollBarThumbBrush, null, ThumbRect, 4, 4);
+    }
+    void DrawHorizontalScrollBar(DrawingContext Context)
+    {
+        if (!HasHorizontalScrollBar())
+            return;
+
+        Rect TrackRect = GetHorizontalScrollTrackRect();
+        Rect ThumbRect = GetHorizontalScrollThumbRect();
+        Context.DrawRectangle(fScrollBarTrackBrush, fLinePen, TrackRect);
+        Context.DrawRectangle(fScrollBarThumbBrush, null, ThumbRect, 4, 4);
+
+        if (HasVerticalScrollBar())
+            DrawBand(Context, new Rect(TrackRect.Right, TrackRect.Y, Bounds.Width - TrackRect.Right, TrackRect.Height), fScrollBarTrackBrush);
+    }
+    void DrawFooter(DrawingContext Context, double Y, double Height, double ContentWidth)
+    {
+        double X = -fHorizontalOffset;
+        using (Context.PushClip(new Rect(0, Y, ContentWidth, Height)))
         {
-            double Width = Math.Max(Column.MinWidth, Column.Width);
-            Rect Rect = new(X, Y, Width, Height);
-            DrawBand(Context, Rect, fFooterBrush);
-            DrawText(Context, fEngine.GetTotalSummaryText(Column), Rect, fMutedTextBrush, FontWeight.SemiBold);
-            X += Width;
+            foreach (GroupGridColumn Column in fEngine.GetVisibleValueColumns())
+            {
+                double ColumnWidth = Math.Max(Column.MinWidth, Column.Width);
+                if (X >= ContentWidth)
+                    break;
+
+                if (X + ColumnWidth > 0)
+                {
+                    Rect Rect = new(X, Y, ColumnWidth, Height);
+                    DrawBand(Context, Rect, fFooterBrush);
+                    DrawText(Context, fEngine.GetTotalSummaryText(Column), Rect, fMutedTextBrush, FontWeight.SemiBold);
+                }
+
+                X += ColumnWidth;
+            }
         }
     }
     void HandleHitTest(GroupGridHitTestResult Hit)
@@ -370,6 +671,76 @@ public class GroupGrid: Control
             fEngine.SetCurrentCell(Hit.Cell);
             fEngine.SetSelectedCell(Hit.Cell);
         }
+    }
+    bool HandleVerticalScrollPointerPressed(PointerPressedEventArgs Args, Point Point)
+    {
+        if (!HasVerticalScrollBar())
+            return false;
+
+        Rect TrackRect = GetVerticalScrollTrackRect();
+        if (!TrackRect.Contains(Point))
+            return false;
+
+        Rect ThumbRect = GetVerticalScrollThumbRect();
+        if (ThumbRect.Contains(Point))
+        {
+            fIsVerticalScrollDragging = true;
+            fVerticalScrollDragOffset = Point.Y - ThumbRect.Y;
+            Args.Pointer.Capture(this);
+            return true;
+        }
+
+        int Delta = Point.Y < ThumbRect.Y ? -fEngine.Viewport.Count : fEngine.Viewport.Count;
+        ScrollViewport(Delta);
+        return true;
+    }
+    bool HandleHorizontalScrollPointerPressed(PointerPressedEventArgs Args, Point Point)
+    {
+        if (!HasHorizontalScrollBar())
+            return false;
+
+        Rect TrackRect = GetHorizontalScrollTrackRect();
+        if (!TrackRect.Contains(Point))
+            return false;
+
+        Rect ThumbRect = GetHorizontalScrollThumbRect();
+        if (ThumbRect.Contains(Point))
+        {
+            fIsHorizontalScrollDragging = true;
+            fHorizontalScrollDragOffset = Point.X - ThumbRect.X;
+            Args.Pointer.Capture(this);
+            return true;
+        }
+
+        double Delta = Point.X < ThumbRect.X ? -TrackRect.Width : TrackRect.Width;
+        SetHorizontalOffsetCore(fHorizontalOffset + Delta);
+        return true;
+    }
+    bool IsHorizontalScrollableBand(Point Point)
+    {
+        if (!HasHorizontalScrollBar())
+            return false;
+
+        double Top = fEngine.LayoutMetrics.ToolBarHeight + fEngine.LayoutMetrics.GroupPanelHeight;
+        double Bottom = GetBodyTop() + GetBodyHeight() + fEngine.LayoutMetrics.FooterSummaryHeight;
+        return Point.X >= 0 && Point.X < GetBodyContentWidth() && Point.Y >= Top && Point.Y < Bottom;
+    }
+    GroupGridHitTestResult HitTest(Point Point)
+    {
+        double X = Point.X;
+        double Y = Point.Y;
+        double HorizontalScrollTop = GetBodyTop() + GetBodyHeight() + fEngine.LayoutMetrics.FooterSummaryHeight;
+        if (HasHorizontalScrollBar() && Point.Y >= HorizontalScrollTop && Point.Y < HorizontalScrollTop + fEngine.LayoutMetrics.HorizontalScrollBarHeight)
+            return GroupGridHitTestResult.Empty;
+
+        GroupGridHitTestResult Result = fEngine.HitTest(X, Y);
+        if (!IsHorizontalScrollableBand(Point))
+            return Result;
+
+        if (Result.Kind == GroupGridHitTestKind.GroupExpander)
+            return Result;
+
+        return fEngine.HitTest(X + fHorizontalOffset, Y);
     }
     bool HandleKey(KeyEventArgs Args)
     {
@@ -423,7 +794,44 @@ public class GroupGrid: Control
         Focus(NavigationMethod.Pointer, KeyModifiers.None);
 
         Point Point = Args.GetPosition(this);
-        HandleHitTest(fEngine.HitTest(Point.X, Point.Y));
+        if (HandleVerticalScrollPointerPressed(Args, Point))
+        {
+            Args.Handled = true;
+            return;
+        }
+        if (HandleHorizontalScrollPointerPressed(Args, Point))
+        {
+            Args.Handled = true;
+            return;
+        }
+
+        HandleHitTest(HitTest(Point));
+        Args.Handled = true;
+    }
+    /// <inheritdoc />
+    protected override void OnPointerMoved(PointerEventArgs Args)
+    {
+        base.OnPointerMoved(Args);
+
+        Point Point = Args.GetPosition(this);
+        if (fIsVerticalScrollDragging && SetFirstVisibleNodeIndexFromVerticalScroll(Point.Y))
+            Args.Handled = true;
+        if (fIsHorizontalScrollDragging && SetHorizontalOffsetFromScroll(Point.X))
+            Args.Handled = true;
+    }
+    /// <inheritdoc />
+    protected override void OnPointerReleased(PointerReleasedEventArgs Args)
+    {
+        base.OnPointerReleased(Args);
+
+        if (!fIsVerticalScrollDragging && !fIsHorizontalScrollDragging)
+            return;
+
+        fIsVerticalScrollDragging = false;
+        fIsHorizontalScrollDragging = false;
+        fVerticalScrollDragOffset = 0;
+        fHorizontalScrollDragOffset = 0;
+        Args.Pointer.Capture(null);
         Args.Handled = true;
     }
     /// <inheritdoc />
@@ -475,6 +883,15 @@ public class GroupGrid: Control
     public bool SetFirstVisibleNodeIndex(int VisibleNodeIndex)
     {
         return SetFirstVisibleNodeIndexCore(VisibleNodeIndex);
+    }
+    /// <summary>
+    /// Sets the horizontal scroll offset in pixels.
+    /// </summary>
+    /// <param name="HorizontalOffset">The horizontal scroll offset.</param>
+    /// <returns>True if the offset changed; otherwise, false.</returns>
+    public bool SetHorizontalOffset(double HorizontalOffset)
+    {
+        return SetHorizontalOffsetCore(HorizontalOffset);
     }
     /// <summary>
     /// Scrolls the current cell into the virtual viewport.
@@ -665,23 +1082,37 @@ public class GroupGrid: Control
         if (fEngine == null)
             return;
 
+        double ContentWidth = GetBodyContentWidth();
         double Y = 0;
         DrawBand(Context, new Rect(0, Y, Bounds.Width, fEngine.LayoutMetrics.ToolBarHeight), fToolBarBrush);
         Y += fEngine.LayoutMetrics.ToolBarHeight;
 
-        DrawGroupPanel(Context, Y, fEngine.LayoutMetrics.GroupPanelHeight, Bounds.Width);
+        DrawGroupPanel(Context, Y, fEngine.LayoutMetrics.GroupPanelHeight, ContentWidth);
+        if (HasVerticalScrollBar())
+            DrawBand(Context, new Rect(ContentWidth, Y, Bounds.Width - ContentWidth, fEngine.LayoutMetrics.GroupPanelHeight), fGroupPanelBrush);
         Y += fEngine.LayoutMetrics.GroupPanelHeight;
 
-        DrawColumns(Context, Y, fEngine.LayoutMetrics.ColumnHeaderHeight, fHeaderBrush, false);
+        DrawColumns(Context, Y, fEngine.LayoutMetrics.ColumnHeaderHeight, ContentWidth, fHeaderBrush, false);
+        if (HasVerticalScrollBar())
+            DrawBand(Context, new Rect(ContentWidth, Y, Bounds.Width - ContentWidth, fEngine.LayoutMetrics.ColumnHeaderHeight), fHeaderBrush);
         Y += fEngine.LayoutMetrics.ColumnHeaderHeight;
 
-        DrawColumns(Context, Y, fEngine.LayoutMetrics.FilterRowHeight, fFilterBrush, true);
+        DrawColumns(Context, Y, fEngine.LayoutMetrics.FilterRowHeight, ContentWidth, fFilterBrush, true);
+        if (HasVerticalScrollBar())
+            DrawBand(Context, new Rect(ContentWidth, Y, Bounds.Width - ContentWidth, fEngine.LayoutMetrics.FilterRowHeight), fFilterBrush);
         Y += fEngine.LayoutMetrics.FilterRowHeight;
 
-        DrawBody(Context, Y, Bounds.Width);
-        Y += fEngine.Viewport.Count * fEngine.LayoutMetrics.RowHeight;
+        double BodyHeight = GetBodyHeight();
+        DrawBody(Context, Y, ContentWidth);
+        DrawVerticalScrollBar(Context);
+        Y += BodyHeight;
 
-        DrawFooter(Context, Y, fEngine.LayoutMetrics.FooterSummaryHeight);
+        DrawFooter(Context, Y, fEngine.LayoutMetrics.FooterSummaryHeight, ContentWidth);
+        if (HasVerticalScrollBar())
+            DrawBand(Context, new Rect(ContentWidth, Y, Bounds.Width - ContentWidth, fEngine.LayoutMetrics.FooterSummaryHeight), fFooterBrush);
+        Y += fEngine.LayoutMetrics.FooterSummaryHeight;
+
+        DrawHorizontalScrollBar(Context);
     }
 
     // ● properties
@@ -798,6 +1229,10 @@ public class GroupGrid: Control
     /// Gets the first visible node index in the virtual viewport.
     /// </summary>
     public int FirstVisibleNodeIndex => fFirstVisibleNodeIndex;
+    /// <summary>
+    /// Gets the horizontal scroll offset in pixels.
+    /// </summary>
+    public double HorizontalOffset => fHorizontalOffset;
     /// <summary>
     /// Gets the total height of the fixed non-body bands.
     /// </summary>

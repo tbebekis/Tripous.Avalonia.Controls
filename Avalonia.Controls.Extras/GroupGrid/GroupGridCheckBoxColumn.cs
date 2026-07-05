@@ -12,6 +12,7 @@ public class GroupGridCheckBoxColumn: GroupGridColumn
     public GroupGridCheckBoxColumn()
     {
         ValueType = typeof(bool);
+        HorizontalAlignment = GroupGridCellHorizontalAlignment.Center;
     }
 
     // ● public methods
