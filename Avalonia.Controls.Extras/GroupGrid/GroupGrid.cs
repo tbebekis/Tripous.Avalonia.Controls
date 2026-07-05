@@ -36,6 +36,7 @@ public class GroupGrid: Control
     bool fIsColumnResizing;
     bool fIsColumnDragging;
     bool fIsColumnDragActive;
+    bool fColumnDragFromGroupPanel;
     double fVerticalScrollDragOffset;
     double fHorizontalScrollDragOffset;
     double fHorizontalOffset;
@@ -49,6 +50,7 @@ public class GroupGrid: Control
     double fColumnDragDropX;
     int fColumnDragDropIndex = -1;
     int fColumnDragGroupDropIndex = -1;
+    int fColumnDragSourceGroupIndex = -1;
     GroupGridColumn fColumnDragColumn;
     bool fHasHorizontalScrollBar;
 
@@ -281,6 +283,14 @@ public class GroupGrid: Control
 
         return new Rect(0, GetGroupPanelTop(), GetBodyContentWidth(), fEngine.LayoutMetrics.GroupPanelHeight);
     }
+    Rect GetColumnHeaderRect()
+    {
+        if (fEngine == null)
+            return default;
+
+        double Y = fEngine.LayoutMetrics.ToolBarHeight + fEngine.LayoutMetrics.GroupPanelHeight;
+        return new Rect(0, Y, GetBodyContentWidth(), fEngine.LayoutMetrics.ColumnHeaderHeight);
+    }
     double GetBodyHeight()
     {
         if (fEngine == null)
@@ -445,6 +455,45 @@ public class GroupGrid: Control
         GroupIndex = fEngine.GroupColumns.Count;
         return true;
     }
+    bool GetGroupPanelColumnAt(Point Point, out GroupGridColumn Column, out int GroupIndex)
+    {
+        Column = null;
+        GroupIndex = -1;
+        Rect PanelRect = GetGroupPanelRect();
+        if (!PanelRect.Contains(Point))
+            return false;
+
+        double X = 6;
+        for (int Index = 0; Index < fEngine.GroupColumns.Count; Index++)
+        {
+            GroupGridColumn Item = fEngine.GroupColumns[Index];
+            string Text = string.IsNullOrWhiteSpace(Item.Header) ? Item.Name : Item.Header;
+            double ItemWidth = Math.Max(80, Text.Length * 8 + 24);
+            Rect Rect = new(X, PanelRect.Y + 5, ItemWidth, Math.Max(0, PanelRect.Height - 10));
+            if (Rect.Contains(Point))
+            {
+                Column = Item;
+                GroupIndex = Index;
+                return true;
+            }
+
+            X += ItemWidth + 6;
+        }
+
+        return false;
+    }
+    bool IsInsideGrid(Point Point)
+    {
+        return Point.X >= 0 && Point.Y >= 0 && Point.X < Bounds.Width && Point.Y < Bounds.Height;
+    }
+    int IndexOfGroupColumn(GroupGridColumn Column)
+    {
+        for (int Index = 0; Index < fEngine.GroupColumns.Count; Index++)
+            if (ReferenceEquals(fEngine.GroupColumns[Index], Column))
+                return Index;
+
+        return -1;
+    }
     bool MoveDraggedColumn()
     {
         if (fColumnDragColumn == null || fColumnDragDropIndex < 0)
@@ -460,6 +509,31 @@ public class GroupGrid: Control
         NewIndex = Math.Clamp(NewIndex, 0, fEngine.Columns.Count - 1);
 
         return fEngine.MoveColumn(fColumnDragColumn, NewIndex);
+    }
+    bool MoveGroupedColumn()
+    {
+        if (fColumnDragColumn == null || fColumnDragGroupDropIndex < 0)
+            return false;
+
+        int OldIndex = IndexOfGroupColumn(fColumnDragColumn);
+        if (OldIndex < 0)
+            return false;
+
+        int NewIndex = fColumnDragGroupDropIndex;
+        if (NewIndex > OldIndex)
+            NewIndex--;
+        NewIndex = Math.Clamp(NewIndex, 0, fEngine.GroupColumns.Count - 1);
+        return fEngine.MoveGroupedColumn(fColumnDragColumn, NewIndex);
+    }
+    bool UngroupDraggedColumnToHeader()
+    {
+        if (fColumnDragColumn == null || fColumnDragDropIndex < 0)
+            return false;
+
+        int NewIndex = Math.Clamp(fColumnDragDropIndex, 0, fEngine.Columns.Count - 1);
+        bool Ungrouped = fEngine.UngroupColumn(fColumnDragColumn);
+        bool Moved = fEngine.MoveColumn(fColumnDragColumn, NewIndex);
+        return Ungrouped || Moved;
     }
     Type FindListItemType(object ItemsSource)
     {
@@ -829,6 +903,9 @@ public class GroupGrid: Control
         if (!fIsColumnDragActive)
             return;
 
+        if (fColumnDragGroupDropIndex < 0 && fColumnDragDropIndex < 0)
+            return;
+
         double X = Math.Clamp(fColumnDragDropX, 0, GetBodyContentWidth());
         if (fColumnDragGroupDropIndex >= 0)
         {
@@ -970,13 +1047,31 @@ public class GroupGrid: Control
     }
     bool HandleColumnDragPointerPressed(PointerPressedEventArgs Args, Point Point)
     {
+        if (GetGroupPanelColumnAt(Point, out GroupGridColumn GroupColumn, out int GroupIndex))
+        {
+            fIsColumnDragging = true;
+            fIsColumnDragActive = false;
+            fColumnDragFromGroupPanel = true;
+            fColumnDragColumn = GroupColumn;
+            fColumnDragSourceGroupIndex = GroupIndex;
+            fColumnDragStartX = Point.X;
+            fColumnDragCurrentX = Point.X;
+            fColumnDragCurrentY = Point.Y;
+            fColumnDragDropX = Point.X;
+            fColumnDragGroupDropIndex = GroupIndex;
+            Args.Pointer.Capture(this);
+            return true;
+        }
+
         GroupGridHitTestResult Hit = HitTest(Point);
         if (Hit == null || Hit.Kind != GroupGridHitTestKind.ColumnHeader || Hit.Column == null || !Hit.Column.CanUserReorder)
             return false;
 
         fIsColumnDragging = true;
         fIsColumnDragActive = false;
+        fColumnDragFromGroupPanel = false;
         fColumnDragColumn = Hit.Column;
+        fColumnDragSourceGroupIndex = -1;
         fColumnDragStartX = Point.X;
         fColumnDragCurrentX = Point.X;
         fColumnDragCurrentY = Point.Y;
@@ -1000,10 +1095,16 @@ public class GroupGrid: Control
         {
             fColumnDragDropIndex = -1;
         }
-        else
+        else if (GetColumnHeaderRect().Contains(Point))
         {
             fColumnDragGroupDropIndex = -1;
             GetColumnDropInfo(Point, out fColumnDragDropIndex, out fColumnDragDropX);
+        }
+        else
+        {
+            fColumnDragGroupDropIndex = -1;
+            fColumnDragDropIndex = -1;
+            fColumnDragDropX = Point.X;
         }
 
         InvalidateVisual();
@@ -1013,14 +1114,23 @@ public class GroupGrid: Control
     {
         if (fIsColumnDragActive)
         {
-            if (fColumnDragGroupDropIndex >= 0)
+            if (fColumnDragFromGroupPanel && fColumnDragDropIndex >= 0)
+                UngroupDraggedColumnToHeader();
+            else if (fColumnDragFromGroupPanel && fColumnDragGroupDropIndex >= 0)
+                MoveGroupedColumn();
+            else if (fColumnDragFromGroupPanel)
+                fEngine.UngroupColumn(fColumnDragColumn);
+            else if (fColumnDragGroupDropIndex >= 0)
                 fEngine.GroupColumn(fColumnDragColumn, fColumnDragGroupDropIndex);
+            else if (!IsInsideGrid(new Point(fColumnDragCurrentX, fColumnDragCurrentY)))
+                fEngine.SetColumnVisible(fColumnDragColumn, false);
             else
                 MoveDraggedColumn();
         }
 
         fIsColumnDragging = false;
         fIsColumnDragActive = false;
+        fColumnDragFromGroupPanel = false;
         fColumnDragColumn = null;
         fColumnDragStartX = 0;
         fColumnDragCurrentX = 0;
@@ -1028,6 +1138,7 @@ public class GroupGrid: Control
         fColumnDragDropX = 0;
         fColumnDragDropIndex = -1;
         fColumnDragGroupDropIndex = -1;
+        fColumnDragSourceGroupIndex = -1;
         InvalidateVisual();
     }
     void UpdatePointerCursor(Point Point)
@@ -1281,6 +1392,38 @@ public class GroupGrid: Control
     public IReadOnlyList<GroupGridColumn> GetVisibleValueColumns()
     {
         return fEngine.GetVisibleValueColumns();
+    }
+    /// <summary>
+    /// Returns all columns in grid column order.
+    /// </summary>
+    /// <returns>A snapshot list with all columns.</returns>
+    public IReadOnlyList<GroupGridColumn> GetAllColumns()
+    {
+        return fEngine.Columns.ToList();
+    }
+    /// <summary>
+    /// Returns visible value columns in the order they are displayed in the header band.
+    /// </summary>
+    /// <returns>A snapshot list with visible value columns.</returns>
+    public IReadOnlyList<GroupGridColumn> GetVisibleOrderedColumns()
+    {
+        return fEngine.GetVisibleValueColumns().ToList();
+    }
+    /// <summary>
+    /// Returns hidden columns in grid column order.
+    /// </summary>
+    /// <returns>A snapshot list with hidden columns.</returns>
+    public IReadOnlyList<GroupGridColumn> GetHiddenColumns()
+    {
+        return fEngine.Columns.Where(Column => !Column.IsVisible).ToList();
+    }
+    /// <summary>
+    /// Returns grouped columns in grouping order.
+    /// </summary>
+    /// <returns>A snapshot list with grouped columns.</returns>
+    public IReadOnlyList<GroupGridColumn> GetGroupedColumns()
+    {
+        return fEngine.GroupColumns.ToList();
     }
     /// <summary>
     /// Adds a column to the grouping list.
