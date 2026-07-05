@@ -21,9 +21,11 @@ public class GroupGrid: Control
     static readonly IBrush fMutedTextBrush = new SolidColorBrush(Color.FromRgb(84, 91, 99));
     static readonly IBrush fScrollBarTrackBrush = new SolidColorBrush(Color.FromRgb(244, 246, 248));
     static readonly IBrush fScrollBarThumbBrush = new SolidColorBrush(Color.FromRgb(188, 196, 205));
+    static readonly IBrush fColumnDragBrush = new SolidColorBrush(Color.FromArgb(220, 250, 252, 255));
     static readonly Pen fLinePen = new(new SolidColorBrush(Color.FromRgb(211, 216, 222)), 1);
     static readonly Pen fCurrentPen = new(new SolidColorBrush(Color.FromRgb(64, 122, 190)), 1);
     static readonly Pen fEditingPen = new(new SolidColorBrush(Color.FromRgb(194, 105, 0)), 2);
+    static readonly Pen fResizePen = new(new SolidColorBrush(Color.FromRgb(80, 120, 170)), 1);
     GroupGridEngine fEngine;
     object fItemsSource;
     IDisposable fOwnedDataAdapter;
@@ -31,9 +33,23 @@ public class GroupGrid: Control
     bool fAutoGenerateColumns;
     bool fIsVerticalScrollDragging;
     bool fIsHorizontalScrollDragging;
+    bool fIsColumnResizing;
+    bool fIsColumnDragging;
+    bool fIsColumnDragActive;
     double fVerticalScrollDragOffset;
     double fHorizontalScrollDragOffset;
     double fHorizontalOffset;
+    double fColumnResizeStartX;
+    double fColumnResizeStartWidth;
+    double fColumnResizeCurrentX;
+    GroupGridColumn fColumnResizeColumn;
+    double fColumnDragStartX;
+    double fColumnDragCurrentX;
+    double fColumnDragCurrentY;
+    double fColumnDragDropX;
+    int fColumnDragDropIndex = -1;
+    int fColumnDragGroupDropIndex = -1;
+    GroupGridColumn fColumnDragColumn;
     bool fHasHorizontalScrollBar;
 
     // ● private methods
@@ -251,6 +267,20 @@ public class GroupGrid: Control
                + fEngine.LayoutMetrics.ColumnHeaderHeight
                + fEngine.LayoutMetrics.FilterRowHeight;
     }
+    double GetGroupPanelTop()
+    {
+        if (fEngine == null)
+            return 0;
+
+        return fEngine.LayoutMetrics.ToolBarHeight;
+    }
+    Rect GetGroupPanelRect()
+    {
+        if (fEngine == null)
+            return default;
+
+        return new Rect(0, GetGroupPanelTop(), GetBodyContentWidth(), fEngine.LayoutMetrics.GroupPanelHeight);
+    }
     double GetBodyHeight()
     {
         if (fEngine == null)
@@ -340,6 +370,96 @@ public class GroupGrid: Control
 
         double Ratio = (X - TrackRect.X - fHorizontalScrollDragOffset) / Range;
         return SetHorizontalOffsetCore(Math.Clamp(Ratio, 0, 1) * MaxOffset);
+    }
+    bool SetColumnWidth(GroupGridColumn Column, double Width)
+    {
+        if (Column == null)
+            return false;
+
+        double NewWidth = Math.Max(Column.MinWidth, Width);
+        if (Math.Abs(NewWidth - Column.Width) < 0.1)
+            return false;
+
+        Column.Width = NewWidth;
+        UpdateViewport(Bounds.Size);
+        InvalidateVisual();
+        return true;
+    }
+    bool GetColumnDropInfo(Point Point, out int ColumnIndex, out double X)
+    {
+        ColumnIndex = -1;
+        X = 0;
+
+        IReadOnlyList<GroupGridColumn> Columns = fEngine.GetVisibleValueColumns();
+        if (Columns.Count == 0)
+            return false;
+
+        double LogicalX = Math.Clamp(Point.X, 0, GetBodyContentWidth()) + fHorizontalOffset;
+        double Left = 0;
+        GroupGridColumn LastColumn = null;
+        double LastRight = 0;
+
+        foreach (GroupGridColumn Column in Columns)
+        {
+            double Width = Math.Max(Column.MinWidth, Column.Width);
+            double Right = Left + Width;
+            if (LogicalX < Left + (Width / 2))
+            {
+                ColumnIndex = fEngine.Columns.IndexOf(Column);
+                X = Math.Clamp(Left - fHorizontalOffset, 0, GetBodyContentWidth());
+                return ColumnIndex >= 0;
+            }
+
+            LastColumn = Column;
+            LastRight = Right;
+            Left = Right;
+        }
+
+        ColumnIndex = fEngine.Columns.IndexOf(LastColumn) + 1;
+        X = Math.Clamp(LastRight - fHorizontalOffset, 0, GetBodyContentWidth());
+        return ColumnIndex > 0;
+    }
+    bool GetGroupDropInfo(Point Point, out int GroupIndex, out double X)
+    {
+        GroupIndex = -1;
+        X = 0;
+        Rect PanelRect = GetGroupPanelRect();
+        if (!PanelRect.Contains(Point) || fColumnDragColumn == null || !fColumnDragColumn.CanUserGroup)
+            return false;
+
+        X = 6;
+        for (int Index = 0; Index < fEngine.GroupColumns.Count; Index++)
+        {
+            GroupGridColumn Column = fEngine.GroupColumns[Index];
+            string Text = string.IsNullOrWhiteSpace(Column.Header) ? Column.Name : Column.Header;
+            double ItemWidth = Math.Max(80, Text.Length * 8 + 24);
+            if (Point.X < X + (ItemWidth / 2))
+            {
+                GroupIndex = Index;
+                return true;
+            }
+
+            X += ItemWidth + 6;
+        }
+
+        GroupIndex = fEngine.GroupColumns.Count;
+        return true;
+    }
+    bool MoveDraggedColumn()
+    {
+        if (fColumnDragColumn == null || fColumnDragDropIndex < 0)
+            return false;
+
+        int OldIndex = fEngine.Columns.IndexOf(fColumnDragColumn);
+        if (OldIndex < 0)
+            return false;
+
+        int NewIndex = fColumnDragDropIndex;
+        if (NewIndex > OldIndex)
+            NewIndex--;
+        NewIndex = Math.Clamp(NewIndex, 0, fEngine.Columns.Count - 1);
+
+        return fEngine.MoveColumn(fColumnDragColumn, NewIndex);
     }
     Type FindListItemType(object ItemsSource)
     {
@@ -472,6 +592,13 @@ public class GroupGrid: Control
     {
         Context.DrawRectangle(Brush, fLinePen, Rect);
     }
+    void DrawColumnHeaderCell(DrawingContext Context, GroupGridColumn Column, Rect Rect, IBrush Brush)
+    {
+        DrawBand(Context, Rect, Brush);
+
+        string Text = string.IsNullOrWhiteSpace(Column.Header) ? Column.Name : Column.Header;
+        DrawText(Context, Text, Rect, fTextBrush, FontWeight.SemiBold);
+    }
     void DrawExpander(DrawingContext Context, Rect Rect, bool IsExpanded)
     {
         double Size = Math.Min(10, Math.Max(6, Math.Min(Rect.Width, Rect.Height) - 8));
@@ -513,12 +640,10 @@ public class GroupGrid: Control
                 if (X + ColumnWidth > 0)
                 {
                     Rect Rect = new(X, Y, ColumnWidth, Height);
-                    DrawBand(Context, Rect, Brush);
-
-                    string Text = DrawFilterText
-                        ? string.Empty
-                        : string.IsNullOrWhiteSpace(Column.Header) ? Column.Name : Column.Header;
-                    DrawText(Context, Text, Rect, fTextBrush, FontWeight.SemiBold);
+                    if (DrawFilterText)
+                        DrawBand(Context, Rect, Brush);
+                    else
+                        DrawColumnHeaderCell(Context, Column, Rect, Brush);
                 }
 
                 X += ColumnWidth;
@@ -560,14 +685,70 @@ public class GroupGrid: Control
                 DrawValueRow(Context, RowRect, VisibleNodeIndex, RowInfo);
         }
     }
+    string GetGroupSummaryText(int VisibleNodeIndex, GroupGridColumn Column)
+    {
+        GroupGridSummaryValue Summary = fEngine.GetGroupSummary(VisibleNodeIndex, Column);
+        return Summary.AggregateKind == GroupGridAggregateKind.None
+            ? string.Empty
+            : Column.FormatSummaryValue(Summary);
+    }
+    double GetFirstCollapsedGroupSummaryX(int VisibleNodeIndex, double RowWidth)
+    {
+        double X = -fHorizontalOffset;
+        foreach (GroupGridColumn Column in fEngine.GetVisibleValueColumns())
+        {
+            double Width = Math.Max(Column.MinWidth, Column.Width);
+            if (X >= RowWidth)
+                break;
+
+            if (X + Width > 0 && !string.IsNullOrWhiteSpace(GetGroupSummaryText(VisibleNodeIndex, Column)))
+                return Math.Max(0, X);
+
+            X += Width;
+        }
+
+        return RowWidth;
+    }
+    void DrawCollapsedGroupSummaries(DrawingContext Context, Rect RowRect, int VisibleNodeIndex)
+    {
+        double X = -fHorizontalOffset;
+        using (Context.PushClip(RowRect))
+        {
+            foreach (GroupGridColumn Column in fEngine.GetVisibleValueColumns())
+            {
+                double Width = Math.Max(Column.MinWidth, Column.Width);
+                if (X >= RowRect.Width)
+                    break;
+
+                if (X + Width > 0)
+                {
+                    string Text = GetGroupSummaryText(VisibleNodeIndex, Column);
+                    if (!string.IsNullOrWhiteSpace(Text))
+                    {
+                        Rect CellRect = new(X, RowRect.Y, Width, RowRect.Height);
+                        DrawText(Context, Text, CellRect, fMutedTextBrush, FontWeight.SemiBold, Column.HorizontalAlignment);
+                    }
+                }
+
+                X += Width;
+            }
+        }
+    }
     void DrawGroupRow(DrawingContext Context, Rect RowRect, int VisibleNodeIndex, GroupGridRowInfo RowInfo)
     {
         DrawBand(Context, RowRect, fGroupRowBrush);
 
         double X = Math.Max(0, RowInfo.Level) * fEngine.LayoutMetrics.GroupIndentWidth;
         Rect ExpanderRect = new(X, RowRect.Y, fEngine.LayoutMetrics.GroupExpanderWidth, RowRect.Height);
+        double HeaderRight = RowRect.Width;
+        if (!RowInfo.IsExpanded)
+            HeaderRight = Math.Min(HeaderRight, GetFirstCollapsedGroupSummaryX(VisibleNodeIndex, RowRect.Width));
+
         DrawExpander(Context, ExpanderRect, RowInfo.IsExpanded);
-        DrawText(Context, fEngine.GetGroupHeaderText(VisibleNodeIndex), new Rect(ExpanderRect.Right, RowRect.Y, RowRect.Width - ExpanderRect.Right, RowRect.Height), fTextBrush, FontWeight.SemiBold);
+        DrawText(Context, fEngine.GetGroupHeaderText(VisibleNodeIndex), new Rect(ExpanderRect.Right, RowRect.Y, Math.Max(0, HeaderRight - ExpanderRect.Right), RowRect.Height), fTextBrush, FontWeight.SemiBold);
+
+        if (!RowInfo.IsExpanded)
+            DrawCollapsedGroupSummaries(Context, RowRect, VisibleNodeIndex);
     }
     void DrawValueRow(DrawingContext Context, Rect RowRect, int VisibleNodeIndex, GroupGridRowInfo RowInfo)
     {
@@ -632,6 +813,45 @@ public class GroupGrid: Control
 
         if (HasVerticalScrollBar())
             DrawBand(Context, new Rect(TrackRect.Right, TrackRect.Y, Bounds.Width - TrackRect.Right, TrackRect.Height), fScrollBarTrackBrush);
+    }
+    void DrawColumnResizeGuide(DrawingContext Context)
+    {
+        if (!fIsColumnResizing)
+            return;
+
+        double X = Math.Clamp(fColumnResizeCurrentX, 0, GetBodyContentWidth());
+        double Top = fEngine.LayoutMetrics.ToolBarHeight + fEngine.LayoutMetrics.GroupPanelHeight;
+        double Bottom = GetBodyTop() + GetBodyHeight() + fEngine.LayoutMetrics.FooterSummaryHeight;
+        Context.DrawLine(fResizePen, new Point(X, Top), new Point(X, Bottom));
+    }
+    void DrawColumnDragGuide(DrawingContext Context)
+    {
+        if (!fIsColumnDragActive)
+            return;
+
+        double X = Math.Clamp(fColumnDragDropX, 0, GetBodyContentWidth());
+        if (fColumnDragGroupDropIndex >= 0)
+        {
+            Rect PanelRect = GetGroupPanelRect();
+            Context.DrawLine(fResizePen, new Point(X, PanelRect.Y + 4), new Point(X, PanelRect.Bottom - 4));
+            return;
+        }
+
+        double Top = fEngine.LayoutMetrics.ToolBarHeight + fEngine.LayoutMetrics.GroupPanelHeight;
+        double Bottom = GetBodyTop() + GetBodyHeight() + fEngine.LayoutMetrics.FooterSummaryHeight;
+        Context.DrawLine(fResizePen, new Point(X, Top), new Point(X, Bottom));
+    }
+    void DrawColumnDragGhost(DrawingContext Context)
+    {
+        if (!fIsColumnDragActive || fColumnDragColumn == null)
+            return;
+
+        double Width = Math.Max(fColumnDragColumn.MinWidth, fColumnDragColumn.Width);
+        double Height = fEngine.LayoutMetrics.ColumnHeaderHeight;
+        double X = Math.Clamp(fColumnDragCurrentX - (Width / 2), 0, Math.Max(0, Bounds.Width - Width));
+        double Y = Math.Clamp(fColumnDragCurrentY - (Height / 2), fEngine.LayoutMetrics.ToolBarHeight, Math.Max(fEngine.LayoutMetrics.ToolBarHeight, Bounds.Height - Height));
+        Rect Rect = new(X, Y, Width, Height);
+        DrawColumnHeaderCell(Context, fColumnDragColumn, Rect, fColumnDragBrush);
     }
     void DrawFooter(DrawingContext Context, double Y, double Height, double ContentWidth)
     {
@@ -715,6 +935,113 @@ public class GroupGrid: Control
         double Delta = Point.X < ThumbRect.X ? -TrackRect.Width : TrackRect.Width;
         SetHorizontalOffsetCore(fHorizontalOffset + Delta);
         return true;
+    }
+    bool HandleColumnResizePointerPressed(PointerPressedEventArgs Args, Point Point)
+    {
+        GroupGridHitTestResult Hit = HitTest(Point);
+        if (Hit == null || Hit.Kind != GroupGridHitTestKind.ColumnResizer || Hit.Column == null)
+            return false;
+
+        fIsColumnResizing = true;
+        fColumnResizeColumn = Hit.Column;
+        fColumnResizeStartX = Point.X;
+        fColumnResizeCurrentX = Point.X;
+        fColumnResizeStartWidth = Hit.Column.Width;
+        Args.Pointer.Capture(this);
+        return true;
+    }
+    bool HandleColumnResizePointerMoved(Point Point)
+    {
+        if (!fIsColumnResizing || fColumnResizeColumn == null)
+            return false;
+
+        fColumnResizeCurrentX = Point.X;
+        SetColumnWidth(fColumnResizeColumn, fColumnResizeStartWidth + Point.X - fColumnResizeStartX);
+        return true;
+    }
+    void EndColumnResize()
+    {
+        fIsColumnResizing = false;
+        fColumnResizeColumn = null;
+        fColumnResizeStartX = 0;
+        fColumnResizeCurrentX = 0;
+        fColumnResizeStartWidth = 0;
+        InvalidateVisual();
+    }
+    bool HandleColumnDragPointerPressed(PointerPressedEventArgs Args, Point Point)
+    {
+        GroupGridHitTestResult Hit = HitTest(Point);
+        if (Hit == null || Hit.Kind != GroupGridHitTestKind.ColumnHeader || Hit.Column == null || !Hit.Column.CanUserReorder)
+            return false;
+
+        fIsColumnDragging = true;
+        fIsColumnDragActive = false;
+        fColumnDragColumn = Hit.Column;
+        fColumnDragStartX = Point.X;
+        fColumnDragCurrentX = Point.X;
+        fColumnDragCurrentY = Point.Y;
+        fColumnDragDropX = Point.X;
+        fColumnDragDropIndex = fEngine.Columns.IndexOf(Hit.Column);
+        Args.Pointer.Capture(this);
+        return true;
+    }
+    bool HandleColumnDragPointerMoved(Point Point)
+    {
+        if (!fIsColumnDragging || fColumnDragColumn == null)
+            return false;
+
+        fColumnDragCurrentX = Point.X;
+        fColumnDragCurrentY = Point.Y;
+        if (!fIsColumnDragActive && Math.Abs(Point.X - fColumnDragStartX) < 4)
+            return true;
+
+        fIsColumnDragActive = true;
+        if (GetGroupDropInfo(Point, out fColumnDragGroupDropIndex, out fColumnDragDropX))
+        {
+            fColumnDragDropIndex = -1;
+        }
+        else
+        {
+            fColumnDragGroupDropIndex = -1;
+            GetColumnDropInfo(Point, out fColumnDragDropIndex, out fColumnDragDropX);
+        }
+
+        InvalidateVisual();
+        return true;
+    }
+    void EndColumnDrag()
+    {
+        if (fIsColumnDragActive)
+        {
+            if (fColumnDragGroupDropIndex >= 0)
+                fEngine.GroupColumn(fColumnDragColumn, fColumnDragGroupDropIndex);
+            else
+                MoveDraggedColumn();
+        }
+
+        fIsColumnDragging = false;
+        fIsColumnDragActive = false;
+        fColumnDragColumn = null;
+        fColumnDragStartX = 0;
+        fColumnDragCurrentX = 0;
+        fColumnDragCurrentY = 0;
+        fColumnDragDropX = 0;
+        fColumnDragDropIndex = -1;
+        fColumnDragGroupDropIndex = -1;
+        InvalidateVisual();
+    }
+    void UpdatePointerCursor(Point Point)
+    {
+        if (fIsColumnResizing)
+        {
+            Cursor = new Cursor(StandardCursorType.SizeWestEast);
+            return;
+        }
+
+        GroupGridHitTestResult Hit = HitTest(Point);
+        Cursor = Hit != null && Hit.Kind == GroupGridHitTestKind.ColumnResizer
+            ? new Cursor(StandardCursorType.SizeWestEast)
+            : null;
     }
     bool IsHorizontalScrollableBand(Point Point)
     {
@@ -804,6 +1131,16 @@ public class GroupGrid: Control
             Args.Handled = true;
             return;
         }
+        if (HandleColumnResizePointerPressed(Args, Point))
+        {
+            Args.Handled = true;
+            return;
+        }
+        if (HandleColumnDragPointerPressed(Args, Point))
+        {
+            Args.Handled = true;
+            return;
+        }
 
         HandleHitTest(HitTest(Point));
         Args.Handled = true;
@@ -814,25 +1151,53 @@ public class GroupGrid: Control
         base.OnPointerMoved(Args);
 
         Point Point = Args.GetPosition(this);
+        if (HandleColumnResizePointerMoved(Point))
+        {
+            UpdatePointerCursor(Point);
+            Args.Handled = true;
+            return;
+        }
+        if (HandleColumnDragPointerMoved(Point))
+        {
+            Args.Handled = true;
+            return;
+        }
         if (fIsVerticalScrollDragging && SetFirstVisibleNodeIndexFromVerticalScroll(Point.Y))
             Args.Handled = true;
         if (fIsHorizontalScrollDragging && SetHorizontalOffsetFromScroll(Point.X))
             Args.Handled = true;
+        if (!Args.Handled)
+            UpdatePointerCursor(Point);
     }
     /// <inheritdoc />
     protected override void OnPointerReleased(PointerReleasedEventArgs Args)
     {
         base.OnPointerReleased(Args);
 
-        if (!fIsVerticalScrollDragging && !fIsHorizontalScrollDragging)
+        if (!fIsVerticalScrollDragging && !fIsHorizontalScrollDragging && !fIsColumnResizing && !fIsColumnDragging)
             return;
 
+        bool WasColumnResizing = fIsColumnResizing;
+        bool WasColumnDragging = fIsColumnDragging;
         fIsVerticalScrollDragging = false;
         fIsHorizontalScrollDragging = false;
         fVerticalScrollDragOffset = 0;
         fHorizontalScrollDragOffset = 0;
+        if (WasColumnResizing)
+            EndColumnResize();
+        if (WasColumnDragging)
+            EndColumnDrag();
         Args.Pointer.Capture(null);
+        UpdatePointerCursor(Args.GetPosition(this));
         Args.Handled = true;
+    }
+    /// <inheritdoc />
+    protected override void OnPointerExited(PointerEventArgs Args)
+    {
+        base.OnPointerExited(Args);
+
+        if (!fIsColumnResizing)
+            Cursor = null;
     }
     /// <inheritdoc />
     protected override void OnKeyDown(KeyEventArgs Args)
@@ -1113,6 +1478,9 @@ public class GroupGrid: Control
         Y += fEngine.LayoutMetrics.FooterSummaryHeight;
 
         DrawHorizontalScrollBar(Context);
+        DrawColumnResizeGuide(Context);
+        DrawColumnDragGuide(Context);
+        DrawColumnDragGhost(Context);
     }
 
     // ● properties
