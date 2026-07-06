@@ -71,8 +71,13 @@ public class GroupGrid: Control
     int fColumnDragSourceGroupIndex = -1;
     GroupGridColumn fColumnDragColumn;
     GroupGridColumn fFilterEditColumn;
+    GroupGridInplaceEditorBase fActiveEditor;
+    Border fActiveDropDownHost;
+    ListBox fActiveDropDownListBox;
+    int fActiveDropDownItemCount;
     string fFilterEditText = string.Empty;
     string fCellEditText = string.Empty;
+    bool fIsClosingEditor;
     bool fHasHorizontalScrollBar;
 
     // ● private methods
@@ -325,6 +330,7 @@ public class GroupGrid: Control
         if (NewFirstVisibleNodeIndex == fFirstVisibleNodeIndex)
             return false;
 
+        CancelCellEdit();
         fFirstVisibleNodeIndex = NewFirstVisibleNodeIndex;
         UpdateViewport(Bounds.Size);
         InvalidateVisual();
@@ -366,6 +372,7 @@ public class GroupGrid: Control
         if (Math.Abs(NewValue - fHorizontalOffset) < 0.1)
             return false;
 
+        CancelCellEdit();
         fHorizontalOffset = NewValue;
         InvalidateVisual();
         return true;
@@ -532,6 +539,7 @@ public class GroupGrid: Control
         if (Math.Abs(NewWidth - Column.Width) < 0.1)
             return false;
 
+        CancelCellEdit();
         Column.Width = NewWidth;
         UpdateViewport(Bounds.Size);
         InvalidateVisual();
@@ -867,6 +875,57 @@ public class GroupGrid: Control
             ? string.Empty
             : Convert.ToString(fEngine.GetValue(Cell.RowIndex, Cell.Column), CultureInfo.CurrentCulture) ?? string.Empty;
     }
+    Rect GetCellRect(GroupGridCell Cell)
+    {
+        if (Cell.IsEmpty || fEngine == null || fEngine.Viewport.IsEmpty)
+            return default;
+
+        int VisibleNodeIndex = fEngine.IndexOfVisibleRow(Cell.RowIndex);
+        if (VisibleNodeIndex < fEngine.Viewport.FirstVisibleNodeIndex || VisibleNodeIndex > fEngine.Viewport.LastVisibleNodeIndex)
+            return default;
+
+        double ColumnLeft = GetColumnLeft(Cell.Column);
+        if (ColumnLeft < 0)
+            return default;
+
+        double RowHeight = fEngine.LayoutMetrics.RowHeight;
+        double X = ColumnLeft - fHorizontalOffset;
+        double Y = GetBodyTop() + ((VisibleNodeIndex - fEngine.Viewport.FirstVisibleNodeIndex) * RowHeight);
+        double Width = Math.Max(Cell.Column.MinWidth, Cell.Column.Width);
+        double ContentWidth = GetBodyContentWidth();
+        Rect ClipRect = new(0, GetBodyTop(), ContentWidth, GetBodyHeight());
+        Rect CellRect = new(X, Y, Width, RowHeight);
+        return CellRect.Intersect(ClipRect);
+    }
+    double GetDropDownHeight(Rect EditorRect)
+    {
+        double ItemHeight = 26;
+        int Count = fActiveDropDownItemCount;
+        double DesiredHeight = Math.Max(ItemHeight, Math.Min(220, Count * ItemHeight + 2));
+        double AvailableBelow = Math.Max(0, Bounds.Height - EditorRect.Bottom);
+        return Math.Max(ItemHeight, Math.Min(DesiredHeight, AvailableBelow));
+    }
+    int GetDropDownItemCount(IEnumerable Items)
+    {
+        if (Items == null)
+            return 0;
+        if (Items is ICollection Collection)
+            return Collection.Count;
+
+        int Result = 0;
+        foreach (object Item in Items)
+            Result++;
+        return Result;
+    }
+    void SetDropDownListBoxHeight(double Height)
+    {
+        if (fActiveDropDownListBox == null)
+            return;
+
+        double ListBoxHeight = Math.Max(24, Height - 2);
+        fActiveDropDownListBox.Height = ListBoxHeight;
+        fActiveDropDownListBox.MaxHeight = ListBoxHeight;
+    }
     bool CanEditTextCell(GroupGridCell Cell)
     {
         return !Cell.IsEmpty
@@ -883,8 +942,275 @@ public class GroupGrid: Control
             return false;
 
         fCellEditText = ReplaceText ? Text ?? string.Empty : GetCellEditText(Cell);
+        ShowCellEditor(Cell);
         InvalidateVisual();
         return true;
+    }
+    bool BeginCellEdit(GroupGridCell Cell, bool ReplaceText, string Text)
+    {
+        if (Cell.IsEmpty)
+            return false;
+
+        if (fEngine.SetCurrentCell(Cell))
+            ScrollCurrentCellIntoViewCore();
+        return BeginCellEdit(ReplaceText, Text);
+    }
+    void ShowCellEditor(GroupGridCell Cell)
+    {
+        CloseActiveEditor();
+        GroupGridInplaceEditorBase Editor = CreateCellEditor(Cell.Column);
+        Editor.Background = fEditingBrush;
+        if (Editor is GroupGridTextInplaceEditor TextEditor)
+        {
+            TextEditor.Foreground = fTextBrush;
+            TextEditor.Value = fCellEditText;
+        }
+        else if (Editor is GroupGridLookupInplaceEditor)
+        {
+            Editor.Value = fEngine.GetValue(Cell.RowIndex, Cell.Column);
+        }
+        else
+        {
+            Editor.Value = fCellEditText;
+        }
+        Editor.ValueChanged += Editor_ValueChanged;
+        Editor.KeyDown += Editor_KeyDown;
+        Editor.LostFocus += Editor_LostFocus;
+        if (Editor.EditorControl != null)
+        {
+            Editor.EditorControl.KeyDown += Editor_KeyDown;
+            Editor.EditorControl.LostFocus += Editor_LostFocus;
+        }
+        Editor.DropDownRequested += Editor_DropDownRequested;
+        fActiveEditor = Editor;
+        VisualChildren.Add(Editor);
+        LogicalChildren.Add(Editor);
+        InvalidateMeasure();
+        InvalidateArrange();
+        Editor.FocusEditor();
+        Editor.SelectAll();
+    }
+    void Editor_DropDownRequested(object Sender, EventArgs Args)
+    {
+        if (fActiveDropDownHost != null)
+            CloseActiveDropDown();
+        else
+            ShowActiveDropDown();
+    }
+    void ShowActiveDropDown()
+    {
+        if (fActiveEditor == null || !fActiveEditor.HasDropDown || fActiveEditor.DropDownItems == null)
+            return;
+
+        fActiveDropDownItemCount = GetDropDownItemCount(fActiveEditor.DropDownItems);
+        ListBox ListBox = new()
+        {
+            ItemsSource = fActiveEditor.DropDownItems,
+            SelectedItem = fActiveEditor.SelectedDropDownItem,
+            MinHeight = 24,
+            Focusable = true,
+        };
+        ScrollViewer.SetHorizontalScrollBarVisibility(ListBox, ScrollBarVisibility.Disabled);
+        ScrollViewer.SetVerticalScrollBarVisibility(ListBox, ScrollBarVisibility.Visible);
+        Border Host = new()
+        {
+            Background = Brushes.White,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(180, 185, 192)),
+            BorderThickness = new Thickness(1),
+            Child = ListBox,
+        };
+        ListBox.AddHandler(InputElement.KeyDownEvent, ActiveDropDownListBox_KeyDown, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        ListBox.SelectionChanged += ActiveDropDownListBox_SelectionChanged;
+        ListBox.PointerReleased += ActiveDropDownListBox_PointerReleased;
+        fActiveDropDownListBox = ListBox;
+        fActiveDropDownHost = Host;
+        VisualChildren.Add(Host);
+        LogicalChildren.Add(Host);
+        InvalidateMeasure();
+        InvalidateArrange();
+        Dispatcher.UIThread.Post(() =>
+        {
+            fActiveDropDownListBox?.ScrollIntoView(fActiveDropDownListBox.SelectedItem);
+            fActiveDropDownListBox?.Focus(NavigationMethod.Pointer, KeyModifiers.None);
+        }, DispatcherPriority.Background);
+    }
+    void CloseActiveDropDown()
+    {
+        if (fActiveDropDownHost == null)
+            return;
+
+        if (fActiveDropDownListBox != null)
+        {
+            fActiveDropDownListBox.RemoveHandler(InputElement.KeyDownEvent, ActiveDropDownListBox_KeyDown);
+            fActiveDropDownListBox.SelectionChanged -= ActiveDropDownListBox_SelectionChanged;
+            fActiveDropDownListBox.PointerReleased -= ActiveDropDownListBox_PointerReleased;
+        }
+        LogicalChildren.Remove(fActiveDropDownHost);
+        VisualChildren.Remove(fActiveDropDownHost);
+        fActiveDropDownListBox = null;
+        fActiveDropDownHost = null;
+        fActiveDropDownItemCount = 0;
+        InvalidateMeasure();
+        InvalidateArrange();
+    }
+    void ActiveDropDownListBox_SelectionChanged(object Sender, SelectionChangedEventArgs Args)
+    {
+        if (fActiveDropDownListBox?.SelectedItem != null)
+            fActiveDropDownListBox.ScrollIntoView(fActiveDropDownListBox.SelectedItem);
+    }
+    bool CommitSelectedDropDownItem()
+    {
+        if (fActiveEditor == null || fActiveDropDownListBox?.SelectedItem == null)
+            return false;
+
+        fActiveEditor.SelectDropDownItem(fActiveDropDownListBox.SelectedItem);
+        CloseActiveDropDown();
+        return CommitCellEdit();
+    }
+    void ActiveDropDownListBox_KeyDown(object Sender, KeyEventArgs Args)
+    {
+        switch (Args.Key)
+        {
+            case Key.Enter:
+                Args.Handled = CommitSelectedDropDownItem();
+                break;
+            case Key.Tab:
+                if (!CommitSelectedDropDownItem())
+                    return;
+                fEngine.MoveCurrentToNextEditableCell(!Args.KeyModifiers.HasFlag(KeyModifiers.Shift));
+                ScrollCurrentCellIntoViewCore();
+                Args.Handled = true;
+                break;
+            case Key.Escape:
+                CloseActiveDropDown();
+                fActiveEditor?.FocusEditor();
+                Args.Handled = true;
+                break;
+        }
+    }
+    void ActiveDropDownListBox_PointerReleased(object Sender, PointerReleasedEventArgs Args)
+    {
+        if (!CommitSelectedDropDownItem())
+            fActiveEditor?.FocusEditor();
+        Args.Handled = true;
+    }
+    GroupGridInplaceEditorBase CreateCellEditor(GroupGridColumn Column)
+    {
+        GroupGridCreateInplaceEditorEventArgs Args = new(Column);
+        CreateInplaceEditor?.Invoke(this, Args);
+        if (Args.Handled && Args.Editor != null)
+            return Args.Editor;
+
+        if (Column is GroupGridLookupColumn LookupColumn)
+            return new GroupGridLookupInplaceEditor(LookupColumn);
+
+        Type ValueType = Nullable.GetUnderlyingType(Column.ValueType) ?? Column.ValueType;
+        if (Column is GroupGridNumberColumn
+            || ValueType == typeof(byte)
+            || ValueType == typeof(sbyte)
+            || ValueType == typeof(short)
+            || ValueType == typeof(ushort)
+            || ValueType == typeof(int)
+            || ValueType == typeof(uint)
+            || ValueType == typeof(long)
+            || ValueType == typeof(ulong)
+            || ValueType == typeof(float)
+            || ValueType == typeof(double)
+            || ValueType == typeof(decimal))
+            return new GroupGridNumberInplaceEditor();
+
+        if (Column is GroupGridDateColumn || ValueType == typeof(DateTime) || ValueType == typeof(DateTimeOffset))
+            return new GroupGridDateInplaceEditor();
+
+        return new GroupGridTextInplaceEditor();
+    }
+    void CloseActiveEditor()
+    {
+        CloseActiveEditor(true);
+    }
+    void CloseActiveEditor(bool RestoreFocus)
+    {
+        if (fActiveEditor == null)
+            return;
+
+        fIsClosingEditor = true;
+        fActiveEditor.LostFocus -= Editor_LostFocus;
+        fActiveEditor.KeyDown -= Editor_KeyDown;
+        if (fActiveEditor.EditorControl != null)
+        {
+            fActiveEditor.EditorControl.LostFocus -= Editor_LostFocus;
+            fActiveEditor.EditorControl.KeyDown -= Editor_KeyDown;
+        }
+        fActiveEditor.ValueChanged -= Editor_ValueChanged;
+        fActiveEditor.DropDownRequested -= Editor_DropDownRequested;
+        fActiveEditor.Cleanup();
+        CloseActiveDropDown();
+        LogicalChildren.Remove(fActiveEditor);
+        VisualChildren.Remove(fActiveEditor);
+        fActiveEditor = null;
+        fIsClosingEditor = false;
+        InvalidateMeasure();
+        InvalidateArrange();
+        if (RestoreFocus)
+            Focus(NavigationMethod.Pointer, KeyModifiers.None);
+    }
+    void Editor_ValueChanged(object Sender, EventArgs Args)
+    {
+        if (fActiveEditor != null)
+            fCellEditText = Convert.ToString(fActiveEditor.Value, CultureInfo.CurrentCulture) ?? string.Empty;
+    }
+    void Editor_KeyDown(object Sender, KeyEventArgs Args)
+    {
+        if (Args.Handled)
+            return;
+
+        switch (Args.Key)
+        {
+            case Key.Enter:
+                Args.Handled = CommitCellEdit();
+                break;
+            case Key.Escape:
+                Args.Handled = CancelCellEdit();
+                break;
+            case Key.Tab:
+                if (!CommitCellEdit())
+                    return;
+                fEngine.MoveCurrentToNextEditableCell(!Args.KeyModifiers.HasFlag(KeyModifiers.Shift));
+                ScrollCurrentCellIntoViewCore();
+                Args.Handled = true;
+                break;
+        }
+    }
+    void Editor_LostFocus(object Sender, RoutedEventArgs Args)
+    {
+        if (fIsClosingEditor)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (fIsClosingEditor || fActiveEditor == null || fActiveDropDownHost != null)
+                return;
+            if (fActiveEditor.IsKeyboardFocusWithin)
+                return;
+
+            CancelCellEdit();
+        }, DispatcherPriority.Background);
+    }
+    object NormalizeEditorValue(GroupGridCell Cell, object Value)
+    {
+        if (Cell.IsEmpty || Value == null || Value == DBNull.Value)
+            return Value;
+
+        Type ValueType = Nullable.GetUnderlyingType(Cell.Column.ValueType) ?? Cell.Column.ValueType;
+        if ((Cell.Column is GroupGridDateColumn || ValueType == typeof(DateTime)) && Value is string Text)
+        {
+            GroupGridDateNormalizeEventArgs Args = new(Cell.Column, Text, CultureInfo.CurrentCulture);
+            DateNormalize?.Invoke(this, Args);
+            if (Args.Handled)
+                return Args.Value;
+        }
+
+        return Value;
     }
     bool CommitCellEdit()
     {
@@ -893,9 +1219,20 @@ public class GroupGrid: Control
 
         try
         {
-            bool Result = fEngine.CommitEdit(fCellEditText);
+            object EditorValue = fCellEditText;
+            if (fActiveEditor != null)
+            {
+                EditorValue = fActiveEditor.Value;
+                if (fActiveEditor is GroupGridTextInplaceEditor)
+                    fCellEditText = Convert.ToString(EditorValue, CultureInfo.CurrentCulture) ?? string.Empty;
+            }
+            object Value = NormalizeEditorValue(fEngine.EditingCell, EditorValue);
+            bool Result = fEngine.CommitEdit(Value);
             if (Result)
+            {
                 fCellEditText = string.Empty;
+                CloseActiveEditor();
+            }
             return Result;
         }
         catch
@@ -910,12 +1247,13 @@ public class GroupGrid: Control
             return false;
 
         fCellEditText = string.Empty;
+        CloseActiveEditor();
         InvalidateVisual();
         return true;
     }
     bool AppendCellEditText(string Text)
     {
-        if (!fEngine.IsEditing || !IsPrintableText(Text))
+        if (!fEngine.IsEditing || fActiveEditor != null || !IsPrintableText(Text))
             return false;
 
         fCellEditText += Text;
@@ -924,7 +1262,7 @@ public class GroupGrid: Control
     }
     bool BackspaceCellEditText()
     {
-        if (!fEngine.IsEditing || string.IsNullOrEmpty(fCellEditText))
+        if (!fEngine.IsEditing || fActiveEditor != null || string.IsNullOrEmpty(fCellEditText))
             return false;
 
         fCellEditText = fCellEditText.Substring(0, fCellEditText.Length - 1);
@@ -933,7 +1271,7 @@ public class GroupGrid: Control
     }
     bool ClearCellEditText()
     {
-        if (!fEngine.IsEditing)
+        if (!fEngine.IsEditing || fActiveEditor != null)
             return false;
 
         fCellEditText = string.Empty;
@@ -1002,6 +1340,7 @@ public class GroupGrid: Control
         GroupGridColumn Column = fFilterEditColumn;
         string Text = fFilterEditText;
         SetFilterEditColumn(null);
+        CancelCellEdit();
         return fEngine.SetColumnFilter(Column, Text);
     }
     bool CancelFilterEdit()
@@ -1015,6 +1354,7 @@ public class GroupGrid: Control
 
         GroupGridColumn Column = fFilterEditColumn;
         SetFilterEditColumn(null);
+        CancelCellEdit();
         return fEngine.ClearColumnFilter(Column);
     }
     bool ShowColumnContextMenu(Point Point)
@@ -1031,15 +1371,15 @@ public class GroupGrid: Control
         };
         List<object> Items = new()
         {
-            CreateMenuItem(GetSortMenuHeader(Column), true, () => fEngine.ToggleSort(Column)),
+            CreateMenuItem(GetSortMenuHeader(Column), true, () => ToggleSort(Column)),
             new Separator(),
-            CreateMenuItem("Group by This Column", !IsGrouped && Column.CanUserGroup, () => fEngine.GroupColumn(Column)),
-            CreateMenuItem("Ungroup Column", IsGrouped, () => fEngine.UngroupColumn(Column)),
+            CreateMenuItem("Group by This Column", !IsGrouped && Column.CanUserGroup, () => GroupColumn(Column)),
+            CreateMenuItem("Ungroup Column", IsGrouped, () => UngroupColumn(Column)),
             new Separator(),
-            CreateMenuItem("Hide Column", Column.IsVisible && Column.CanUserHide, () => fEngine.SetColumnVisible(Column, false)),
+            CreateMenuItem("Hide Column", Column.IsVisible && Column.CanUserHide, () => SetColumnVisible(Column, false)),
             new Separator(),
-            CreateMenuItem("Clear Column Filter", !string.IsNullOrEmpty(fEngine.GetColumnFilter(Column)), () => fEngine.ClearColumnFilter(Column)),
-            CreateMenuItem("Clear All Filters", fEngine.HasFilters, () => fEngine.ClearFilters()),
+            CreateMenuItem("Clear Column Filter", !string.IsNullOrEmpty(fEngine.GetColumnFilter(Column)), () => ClearColumnFilter(Column)),
+            CreateMenuItem("Clear All Filters", fEngine.HasFilters, () => ClearFilters()),
         };
 
         if (fIsColumnManagerMenuItemVisible)
@@ -1090,6 +1430,7 @@ public class GroupGrid: Control
         if (Column == null || !Column.CanAggregate(AggregateKind))
             return;
 
+        CancelCellEdit();
         if (IsGroupSummary)
         {
             Column.GroupSummary = AggregateKind;
@@ -1180,6 +1521,7 @@ public class GroupGrid: Control
         switch (Button.Name)
         {
             case InsertToolButtonName:
+                CancelCellEdit();
                 if (fEngine.InsertRow())
                 {
                     ScrollCurrentCellIntoViewCore();
@@ -1187,6 +1529,7 @@ public class GroupGrid: Control
                 }
                 return true;
             case DeleteToolButtonName:
+                CancelCellEdit();
                 DeleteCurrentRowFromToolBarAsync();
                 return true;
             case EditToolButtonName:
@@ -1624,9 +1967,9 @@ public class GroupGrid: Control
                     string Text = IsEditingCell(RowInfo, Column) ? fCellEditText : fEngine.GetDisplayText(VisibleNodeIndex, Column);
                     DrawText(Context, Text, CellRect, RowInfo.IsGroupSummary ? fMutedTextBrush : fTextBrush, FontWeight.Normal, Column.HorizontalAlignment);
 
-                    if (IsCurrentCell(RowInfo, Column))
+                    if (IsCurrentCell(RowInfo, Column) && !(IsEditingCell(RowInfo, Column) && fActiveEditor != null))
                         Context.DrawRectangle(null, fCurrentPen, CellRect);
-                    if (IsEditingCell(RowInfo, Column))
+                    if (IsEditingCell(RowInfo, Column) && fActiveEditor == null)
                     {
                         Context.DrawRectangle(null, fEditingPen, InsetRect(CellRect, 1));
                         DrawFilterCaret(Context, Text, CellRect);
@@ -1747,7 +2090,8 @@ public class GroupGrid: Control
             SetFilterEditColumn(null);
             fEngine.SetCurrentCell(Hit.Cell);
             fEngine.SetSelectedCell(Hit.Cell);
-            ToggleCheckBoxCell(Hit);
+            if (!ToggleCheckBoxCell(Hit))
+                BeginCellEdit(false, null);
         }
     }
     bool HandleVerticalScrollPointerPressed(PointerPressedEventArgs Args, Point Point)
@@ -1800,6 +2144,7 @@ public class GroupGrid: Control
         if (Hit == null || Hit.Kind != GroupGridHitTestKind.ColumnResizer || Hit.Column == null)
             return false;
 
+        CancelCellEdit();
         fIsColumnResizing = true;
         fColumnResizeColumn = Hit.Column;
         fColumnResizeStartX = Point.X;
@@ -1830,6 +2175,7 @@ public class GroupGrid: Control
     {
         if (GetGroupPanelColumnAt(Point, out GroupGridColumn GroupColumn, out int GroupIndex))
         {
+            CancelCellEdit();
             fIsColumnDragging = true;
             fIsColumnDragActive = false;
             fColumnDragFromGroupPanel = true;
@@ -1848,6 +2194,7 @@ public class GroupGrid: Control
         if (Hit == null || Hit.Kind != GroupGridHitTestKind.ColumnHeader || Hit.Column == null || !Hit.Column.CanUserReorder)
             return false;
 
+        CancelCellEdit();
         fIsColumnDragging = true;
         fIsColumnDragActive = false;
         fColumnDragFromGroupPanel = false;
@@ -2019,6 +2366,9 @@ public class GroupGrid: Control
     bool HandleKey(KeyEventArgs Args)
     {
         if (fEngine == null)
+            return false;
+
+        if (fActiveEditor != null)
             return false;
 
         if (fFilterEditColumn != null)
@@ -2252,7 +2602,38 @@ public class GroupGrid: Control
     protected override Size ArrangeOverride(Size FinalSize)
     {
         UpdateViewport(FinalSize);
-        return base.ArrangeOverride(FinalSize);
+        Size Result = base.ArrangeOverride(FinalSize);
+        if (fActiveEditor != null)
+        {
+            Rect Rect = GetCellRect(fEngine.EditingCell);
+            fActiveEditor.Arrange(Rect.Width <= 0 || Rect.Height <= 0 ? default : InsetRect(Rect, 2));
+        }
+        if (fActiveDropDownHost != null)
+        {
+            Rect Rect = GetCellRect(fEngine.EditingCell);
+            double Height = GetDropDownHeight(Rect);
+            SetDropDownListBoxHeight(Height);
+            fActiveDropDownHost.Arrange(Rect.Width <= 0 || Rect.Height <= 0 ? default : new Rect(Rect.X, Rect.Bottom, Rect.Width, Height));
+        }
+        return Result;
+    }
+    /// <inheritdoc />
+    protected override Size MeasureOverride(Size AvailableSize)
+    {
+        if (fActiveEditor != null)
+        {
+            Rect Rect = GetCellRect(fEngine.EditingCell);
+            fActiveEditor.Measure(Rect.Size);
+        }
+        if (fActiveDropDownHost != null)
+        {
+            Rect Rect = GetCellRect(fEngine.EditingCell);
+            double Height = GetDropDownHeight(Rect);
+            SetDropDownListBoxHeight(Height);
+            fActiveDropDownHost.Measure(new Size(Rect.Width, Height));
+        }
+
+        return base.MeasureOverride(AvailableSize);
     }
 
     // ● constructor
@@ -2381,6 +2762,7 @@ public class GroupGrid: Control
         if (Settings == null)
             return;
 
+        CancelCellEdit();
         Dictionary<string, GroupGridColumn> ColumnMap = fEngine.Columns.ToDictionary(Column => Column.Name, StringComparer.OrdinalIgnoreCase);
         List<GroupGridColumnSettings> OrderedSettings = Settings.Columns
             .Where(Item => Item != null && ColumnMap.ContainsKey(Item.Name))
@@ -2520,6 +2902,7 @@ public class GroupGrid: Control
     /// <returns>True if the column was grouped; otherwise, false.</returns>
     public bool GroupColumn(GroupGridColumn Column, int GroupIndex = -1)
     {
+        CancelCellEdit();
         return fEngine.GroupColumn(Column, GroupIndex);
     }
     /// <summary>
@@ -2529,6 +2912,7 @@ public class GroupGrid: Control
     /// <returns>True if the column was ungrouped; otherwise, false.</returns>
     public bool UngroupColumn(GroupGridColumn Column)
     {
+        CancelCellEdit();
         return fEngine.UngroupColumn(Column);
     }
     /// <summary>
@@ -2539,6 +2923,7 @@ public class GroupGrid: Control
     /// <returns>True if the column moved; otherwise, false.</returns>
     public bool MoveGroupedColumn(GroupGridColumn Column, int GroupIndex)
     {
+        CancelCellEdit();
         return fEngine.MoveGroupedColumn(Column, GroupIndex);
     }
     /// <summary>
@@ -2549,6 +2934,7 @@ public class GroupGrid: Control
     /// <returns>True if the column moved; otherwise, false.</returns>
     public bool MoveColumn(GroupGridColumn Column, int ColumnIndex)
     {
+        CancelCellEdit();
         return fEngine.MoveColumn(Column, ColumnIndex);
     }
     /// <summary>
@@ -2559,6 +2945,7 @@ public class GroupGrid: Control
     /// <returns>True if the column visibility changed; otherwise, false.</returns>
     public bool SetColumnVisible(GroupGridColumn Column, bool IsVisible)
     {
+        CancelCellEdit();
         return fEngine.SetColumnVisible(Column, IsVisible);
     }
     /// <summary>
@@ -2567,6 +2954,7 @@ public class GroupGrid: Control
     /// <returns>True if sorting changed; otherwise, false.</returns>
     public bool ClearSort()
     {
+        CancelCellEdit();
         return fEngine.ClearSort();
     }
     /// <summary>
@@ -2576,6 +2964,7 @@ public class GroupGrid: Control
     /// <returns>True if sorting changed; otherwise, false.</returns>
     public bool ToggleSort(GroupGridColumn Column)
     {
+        CancelCellEdit();
         return fEngine.ToggleSort(Column);
     }
     /// <summary>
@@ -2595,6 +2984,7 @@ public class GroupGrid: Control
     /// <returns>True if the filter changed; otherwise, false.</returns>
     public bool SetColumnFilter(GroupGridColumn Column, string FilterText)
     {
+        CancelCellEdit();
         return fEngine.SetColumnFilter(Column, FilterText);
     }
     /// <summary>
@@ -2604,6 +2994,7 @@ public class GroupGrid: Control
     /// <returns>True if the filter changed; otherwise, false.</returns>
     public bool ClearColumnFilter(GroupGridColumn Column)
     {
+        CancelCellEdit();
         return fEngine.ClearColumnFilter(Column);
     }
     /// <summary>
@@ -2612,6 +3003,7 @@ public class GroupGrid: Control
     /// <returns>True if any filter was cleared; otherwise, false.</returns>
     public bool ClearFilters()
     {
+        CancelCellEdit();
         return fEngine.ClearFilters();
     }
     /// <summary>
@@ -2628,6 +3020,7 @@ public class GroupGrid: Control
     /// <returns>True if a row was inserted; otherwise, false.</returns>
     public bool InsertRow()
     {
+        CancelCellEdit();
         bool Result = fEngine.InsertRow();
         if (Result)
             ScrollCurrentCellIntoViewCore();
@@ -2647,6 +3040,7 @@ public class GroupGrid: Control
     /// <returns>True if a row was deleted; otherwise, false.</returns>
     public bool DeleteCurrentRow()
     {
+        CancelCellEdit();
         bool Result = fEngine.DeleteCurrentRow();
         if (Result)
             ScrollCurrentCellIntoViewCore();
@@ -2667,6 +3061,7 @@ public class GroupGrid: Control
     /// <returns>True if the group state changed; otherwise, false.</returns>
     public bool SetGroupExpanded(int VisibleNodeIndex, bool IsExpanded)
     {
+        CancelCellEdit();
         return fEngine.SetGroupExpanded(VisibleNodeIndex, IsExpanded);
     }
     /// <summary>
@@ -2676,6 +3071,7 @@ public class GroupGrid: Control
     /// <returns>True if the group state changed; otherwise, false.</returns>
     public bool ToggleGroupExpanded(int VisibleNodeIndex)
     {
+        CancelCellEdit();
         return fEngine.ToggleGroupExpanded(VisibleNodeIndex);
     }
     /// <summary>
@@ -2683,6 +3079,7 @@ public class GroupGrid: Control
     /// </summary>
     public void ClearCurrentCell()
     {
+        CancelCellEdit();
         fEngine.ClearCurrentCell();
     }
     /// <summary>
@@ -2692,6 +3089,7 @@ public class GroupGrid: Control
     /// <returns>True if the current cell changed; otherwise, false.</returns>
     public bool SetCurrentCell(GroupGridCell Cell)
     {
+        CancelCellEdit();
         bool Result = fEngine.SetCurrentCell(Cell);
         ScrollCurrentCellIntoViewCore();
         return Result;
@@ -2742,9 +3140,12 @@ public class GroupGrid: Control
     /// <returns>True if the edit was committed; otherwise, false.</returns>
     public bool CommitEdit(object Value)
     {
-        bool Result = fEngine.CommitEdit(Value);
+        bool Result = fEngine.CommitEdit(NormalizeEditorValue(fEngine.EditingCell, Value));
         if (Result)
+        {
             fCellEditText = string.Empty;
+            CloseActiveEditor();
+        }
         return Result;
     }
     /// <summary>
@@ -2763,6 +3164,7 @@ public class GroupGrid: Control
     /// <returns>True if the current cell moved; otherwise, false.</returns>
     public bool MoveCurrentCell(int RowDelta, int ColumnDelta)
     {
+        CancelCellEdit();
         bool Result = fEngine.MoveCurrentCell(RowDelta, ColumnDelta);
         ScrollCurrentCellIntoViewCore();
         return Result;
@@ -3091,4 +3493,12 @@ public class GroupGrid: Control
     /// Occurs when the edit toolbar command is requested.
     /// </summary>
     public event EventHandler EditRequested;
+    /// <summary>
+    /// Occurs when the grid needs an in-place editor for a cell.
+    /// </summary>
+    public event EventHandler<GroupGridCreateInplaceEditorEventArgs> CreateInplaceEditor;
+    /// <summary>
+    /// Occurs when the grid needs to normalize date editor text before committing a value.
+    /// </summary>
+    public event EventHandler<GroupGridDateNormalizeEventArgs> DateNormalize;
 }

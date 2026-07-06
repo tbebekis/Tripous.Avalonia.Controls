@@ -21,6 +21,14 @@ public class GroupGridDateColumn: GroupGridColumn
         if (Value == null || Value == DBNull.Value)
             return null;
 
+        if (Value is string Text)
+        {
+            if (string.IsNullOrWhiteSpace(Text))
+                return null;
+            if (GroupGridDateTextNormalizer.TryParse(Text, CultureInfo.CurrentCulture, out DateTime Date))
+                return Date;
+        }
+
         return Convert.ToDateTime(Value, CultureInfo.CurrentCulture);
     }
 }

@@ -20,7 +20,7 @@ public partial class MainWindow : Window
     private void AddColumns()
     {
         Grid.Columns.Add(new GroupGridTextColumn { Name = "Source", Header = "Source", Width = 110 });
-        Grid.Columns.Add(new GroupGridTextColumn { Name = "Customer", Header = "Customer", Width = 170 });
+        Grid.Columns.Add(new GroupGridLookupColumn { Name = "CustomerId", Header = "Customer", Width = 170, ValueType = typeof(int), LookupItemsSource = CreateCustomers(), DisplayMember = "Name", ValueMember = "Id" });
         Grid.Columns.Add(new GroupGridTextColumn { Name = "Region", Header = "Region", Width = 120 });
         Grid.Columns.Add(new GroupGridDateColumn { Name = "OrderDate", Header = "Order Date", Width = 120, DisplayFormat = "yyyy-MM-dd" });
         Grid.Columns.Add(new GroupGridNumberColumn { Name = "Quantity", Header = "Qty", Width = 80, ValueType = typeof(int), GroupSummary = GroupGridAggregateKind.Sum, TotalSummary = GroupGridAggregateKind.Sum });
@@ -67,7 +67,6 @@ public partial class MainWindow : Window
     {
         List<SalesRow> Result = new();
         string[] Regions = { "North", "South", "East", "West" };
-        string[] Customers = { "Alpha", "Beacon", "Canyon", "Delta", "Eclipse", "Falcon", "Galaxy", "Harbor" };
         DateTime StartDate = new(2026, 1, 5);
 
         for (int Index = 0; Index < 80; Index++)
@@ -76,7 +75,7 @@ public partial class MainWindow : Window
             Result.Add(new SalesRow
             {
                 Source = Source,
-                Customer = Customers[Index % Customers.Length],
+                CustomerId = 1 + (Index % 8),
                 Region = Regions[Index % Regions.Length],
                 OrderDate = StartDate.AddDays(Index),
                 Quantity = Quantity,
@@ -96,7 +95,7 @@ public partial class MainWindow : Window
     {
         DataTable Result = new("Sales");
         Result.Columns.Add("Source", typeof(string));
-        Result.Columns.Add("Customer", typeof(string));
+        Result.Columns.Add("CustomerId", typeof(int));
         Result.Columns.Add("Region", typeof(string));
         Result.Columns.Add("OrderDate", typeof(DateTime));
         Result.Columns.Add("Quantity", typeof(int));
@@ -105,9 +104,51 @@ public partial class MainWindow : Window
         Result.Columns.Add("Notes", typeof(string));
 
         foreach (SalesRow Row in CreateRows(Source))
-            Result.Rows.Add(Row.Source, Row.Customer, Row.Region, Row.OrderDate, Row.Quantity, Row.Amount, Row.IsPaid, Row.Notes);
+            Result.Rows.Add(Row.Source, Row.CustomerId, Row.Region, Row.OrderDate, Row.Quantity, Row.Amount, Row.IsPaid, Row.Notes);
 
         return Result;
+    }
+    /// <summary>
+    /// Creates demo lookup customers.
+    /// </summary>
+    /// <returns>The demo customers.</returns>
+    private List<CustomerLookupRow> CreateCustomers()
+    {
+        return new List<CustomerLookupRow>
+        {
+            new() { Id = 1, Name = "Alpha" },
+            new() { Id = 2, Name = "Beacon" },
+            new() { Id = 3, Name = "Canyon" },
+            new() { Id = 4, Name = "Delta" },
+            new() { Id = 5, Name = "Eclipse" },
+            new() { Id = 6, Name = "Falcon" },
+            new() { Id = 7, Name = "Galaxy" },
+            new() { Id = 8, Name = "Harbor" },
+            new() { Id = 9, Name = "Ion" },
+            new() { Id = 10, Name = "Jupiter" },
+            new() { Id = 11, Name = "Keystone" },
+            new() { Id = 12, Name = "Lagoon" },
+            new() { Id = 13, Name = "Meridian" },
+            new() { Id = 14, Name = "Nimbus" },
+            new() { Id = 15, Name = "Orion" },
+            new() { Id = 16, Name = "Pioneer" },
+            new() { Id = 17, Name = "Quartz" },
+            new() { Id = 18, Name = "River" },
+            new() { Id = 19, Name = "Summit" },
+            new() { Id = 20, Name = "Timber" },
+            new() { Id = 21, Name = "Union" },
+            new() { Id = 22, Name = "Vertex" },
+            new() { Id = 23, Name = "Willow" },
+            new() { Id = 24, Name = "Xenon" },
+            new() { Id = 25, Name = "Yonder" },
+            new() { Id = 26, Name = "Zenith" },
+            new() { Id = 27, Name = "Atlas" },
+            new() { Id = 28, Name = "Boreal" },
+            new() { Id = 29, Name = "Cobalt" },
+            new() { Id = 30, Name = "Drift" },
+            new() { Id = 31, Name = "Everest" },
+            new() { Id = 32, Name = "Frontier" },
+        };
     }
     /// <summary>
     /// Handles data source selection changes.
@@ -182,9 +223,9 @@ public class SalesRow
     /// </summary>
     public string Source { get; set; } = string.Empty;
     /// <summary>
-    /// Gets or sets the customer name.
+    /// Gets or sets the customer id.
     /// </summary>
-    public string Customer { get; set; } = string.Empty;
+    public int CustomerId { get; set; }
     /// <summary>
     /// Gets or sets the region.
     /// </summary>
@@ -209,4 +250,28 @@ public class SalesRow
     /// Gets or sets the row notes.
     /// </summary>
     public string Notes { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Represents a demo lookup customer.
+/// </summary>
+public class CustomerLookupRow
+{
+    // ● constructor
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CustomerLookupRow"/> class.
+    /// </summary>
+    public CustomerLookupRow()
+    {
+    }
+
+    // ● properties
+    /// <summary>
+    /// Gets or sets the lookup id.
+    /// </summary>
+    public int Id { get; set; }
+    /// <summary>
+    /// Gets or sets the lookup display name.
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
 }
