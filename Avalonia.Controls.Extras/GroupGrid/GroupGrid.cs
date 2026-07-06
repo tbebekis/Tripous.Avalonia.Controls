@@ -73,6 +73,7 @@ public class GroupGrid: Control
     GroupGridColumn fFilterEditColumn;
     GroupGridInplaceEditorBase fActiveEditor;
     Border fActiveDropDownHost;
+    Control fActiveDropDownControl;
     ListBox fActiveDropDownListBox;
     int fActiveDropDownItemCount;
     string fFilterEditText = string.Empty;
@@ -899,11 +900,21 @@ public class GroupGrid: Control
     }
     double GetDropDownHeight(Rect EditorRect)
     {
+        if (fActiveEditor != null && fActiveEditor.DropDownHeight > 0)
+            return Math.Min(fActiveEditor.DropDownHeight, Math.Max(24, Bounds.Height - EditorRect.Bottom));
+
         double ItemHeight = 26;
         int Count = fActiveDropDownItemCount;
         double DesiredHeight = Math.Max(ItemHeight, Math.Min(220, Count * ItemHeight + 2));
         double AvailableBelow = Math.Max(0, Bounds.Height - EditorRect.Bottom);
         return Math.Max(ItemHeight, Math.Min(DesiredHeight, AvailableBelow));
+    }
+    double GetDropDownWidth(Rect EditorRect)
+    {
+        double Width = fActiveEditor != null && fActiveEditor.DropDownWidth > 0
+            ? fActiveEditor.DropDownWidth
+            : EditorRect.Width;
+        return Math.Max(EditorRect.Width, Width);
     }
     int GetDropDownItemCount(IEnumerable Items)
     {
@@ -960,7 +971,12 @@ public class GroupGrid: Control
         CloseActiveEditor();
         GroupGridInplaceEditorBase Editor = CreateCellEditor(Cell.Column);
         Editor.Background = fEditingBrush;
-        if (Editor is GroupGridTextInplaceEditor TextEditor)
+        if (Editor is GroupGridDateInplaceEditor DateEditor)
+        {
+            DateEditor.Foreground = fTextBrush;
+            DateEditor.Value = fEngine.GetValue(Cell.RowIndex, Cell.Column);
+        }
+        else if (Editor is GroupGridTextInplaceEditor TextEditor)
         {
             TextEditor.Foreground = fTextBrush;
             TextEditor.Value = fCellEditText;
@@ -999,30 +1015,45 @@ public class GroupGrid: Control
     }
     void ShowActiveDropDown()
     {
-        if (fActiveEditor == null || !fActiveEditor.HasDropDown || fActiveEditor.DropDownItems == null)
+        if (fActiveEditor == null || !fActiveEditor.HasDropDown)
             return;
 
-        fActiveDropDownItemCount = GetDropDownItemCount(fActiveEditor.DropDownItems);
-        ListBox ListBox = new()
+        Control DropDownControl = fActiveEditor.CreateDropDownControl();
+        if (DropDownControl == null)
         {
-            ItemsSource = fActiveEditor.DropDownItems,
-            SelectedItem = fActiveEditor.SelectedDropDownItem,
-            MinHeight = 24,
-            Focusable = true,
-        };
-        ScrollViewer.SetHorizontalScrollBarVisibility(ListBox, ScrollBarVisibility.Disabled);
-        ScrollViewer.SetVerticalScrollBarVisibility(ListBox, ScrollBarVisibility.Visible);
+            if (fActiveEditor.DropDownItems == null)
+                return;
+
+            fActiveDropDownItemCount = GetDropDownItemCount(fActiveEditor.DropDownItems);
+            ListBox ListBox = new()
+            {
+                ItemsSource = fActiveEditor.DropDownItems,
+                SelectedItem = fActiveEditor.SelectedDropDownItem,
+                MinHeight = 24,
+                Focusable = true,
+            };
+            ScrollViewer.SetHorizontalScrollBarVisibility(ListBox, ScrollBarVisibility.Disabled);
+            ScrollViewer.SetVerticalScrollBarVisibility(ListBox, ScrollBarVisibility.Visible);
+            ListBox.AddHandler(InputElement.KeyDownEvent, ActiveDropDownListBox_KeyDown, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+            ListBox.SelectionChanged += ActiveDropDownListBox_SelectionChanged;
+            ListBox.PointerReleased += ActiveDropDownListBox_PointerReleased;
+            fActiveDropDownListBox = ListBox;
+            DropDownControl = ListBox;
+        }
+        else if (DropDownControl is Calendar Calendar)
+        {
+            Calendar.AddHandler(InputElement.KeyDownEvent, ActiveDropDownCalendar_KeyDown, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+            Calendar.AddHandler(InputElement.DoubleTappedEvent, ActiveDropDownCalendar_DoubleTapped, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        }
+
         Border Host = new()
         {
             Background = Brushes.White,
             BorderBrush = new SolidColorBrush(Color.FromRgb(180, 185, 192)),
             BorderThickness = new Thickness(1),
-            Child = ListBox,
+            Child = DropDownControl,
         };
-        ListBox.AddHandler(InputElement.KeyDownEvent, ActiveDropDownListBox_KeyDown, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
-        ListBox.SelectionChanged += ActiveDropDownListBox_SelectionChanged;
-        ListBox.PointerReleased += ActiveDropDownListBox_PointerReleased;
-        fActiveDropDownListBox = ListBox;
+        fActiveDropDownControl = DropDownControl;
         fActiveDropDownHost = Host;
         VisualChildren.Add(Host);
         LogicalChildren.Add(Host);
@@ -1031,7 +1062,10 @@ public class GroupGrid: Control
         Dispatcher.UIThread.Post(() =>
         {
             fActiveDropDownListBox?.ScrollIntoView(fActiveDropDownListBox.SelectedItem);
-            fActiveDropDownListBox?.Focus(NavigationMethod.Pointer, KeyModifiers.None);
+            if (fActiveDropDownListBox != null)
+                fActiveDropDownListBox.Focus(NavigationMethod.Pointer, KeyModifiers.None);
+            else
+                fActiveEditor?.DropDownOpened(fActiveDropDownControl);
         }, DispatcherPriority.Background);
     }
     void CloseActiveDropDown()
@@ -1045,8 +1079,15 @@ public class GroupGrid: Control
             fActiveDropDownListBox.SelectionChanged -= ActiveDropDownListBox_SelectionChanged;
             fActiveDropDownListBox.PointerReleased -= ActiveDropDownListBox_PointerReleased;
         }
+        if (fActiveDropDownControl is Calendar Calendar)
+        {
+            Calendar.RemoveHandler(InputElement.KeyDownEvent, ActiveDropDownCalendar_KeyDown);
+            Calendar.RemoveHandler(InputElement.DoubleTappedEvent, ActiveDropDownCalendar_DoubleTapped);
+        }
+        fActiveEditor?.DropDownClosed();
         LogicalChildren.Remove(fActiveDropDownHost);
         VisualChildren.Remove(fActiveDropDownHost);
+        fActiveDropDownControl = null;
         fActiveDropDownListBox = null;
         fActiveDropDownHost = null;
         fActiveDropDownItemCount = 0;
@@ -1094,6 +1135,45 @@ public class GroupGrid: Control
             fActiveEditor?.FocusEditor();
         Args.Handled = true;
     }
+    bool CommitSelectedCalendarDate()
+    {
+        if (fActiveEditor == null || fActiveDropDownControl is not Calendar Calendar || Calendar.SelectedDate == null)
+            return false;
+
+        fActiveEditor.SelectDropDownItem(Calendar.SelectedDate.Value);
+        CloseActiveDropDown();
+        return CommitCellEdit();
+    }
+    void ActiveDropDownCalendar_KeyDown(object Sender, KeyEventArgs Args)
+    {
+        switch (Args.Key)
+        {
+            case Key.Enter:
+                Args.Handled = CommitSelectedCalendarDate();
+                break;
+            case Key.Tab:
+                if (!CommitSelectedCalendarDate())
+                    return;
+                fEngine.MoveCurrentToNextEditableCell(!Args.KeyModifiers.HasFlag(KeyModifiers.Shift));
+                ScrollCurrentCellIntoViewCore();
+                Args.Handled = true;
+                break;
+            case Key.Escape:
+                CloseActiveDropDown();
+                fActiveEditor?.FocusEditor();
+                Args.Handled = true;
+                break;
+        }
+    }
+    void ActiveDropDownCalendar_DoubleTapped(object Sender, TappedEventArgs Args)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!CommitSelectedCalendarDate())
+                fActiveEditor?.FocusEditor();
+        }, DispatcherPriority.Background);
+        Args.Handled = true;
+    }
     GroupGridInplaceEditorBase CreateCellEditor(GroupGridColumn Column)
     {
         GroupGridCreateInplaceEditorEventArgs Args = new(Column);
@@ -1120,7 +1200,7 @@ public class GroupGrid: Control
             return new GroupGridNumberInplaceEditor();
 
         if (Column is GroupGridDateColumn || ValueType == typeof(DateTime) || ValueType == typeof(DateTimeOffset))
-            return new GroupGridDateInplaceEditor();
+            return new GroupGridDateInplaceEditor(Column as GroupGridDateColumn);
 
         return new GroupGridTextInplaceEditor();
     }
@@ -1193,7 +1273,10 @@ public class GroupGrid: Control
             if (fActiveEditor.IsKeyboardFocusWithin)
                 return;
 
-            CancelCellEdit();
+            if (fActiveEditor is GroupGridNumberInplaceEditor)
+                CommitCellEdit();
+            else
+                CancelCellEdit();
         }, DispatcherPriority.Background);
     }
     object NormalizeEditorValue(GroupGridCell Cell, object Value)
@@ -1237,6 +1320,9 @@ public class GroupGrid: Control
         }
         catch
         {
+            if (fActiveEditor is GroupGridNumberInplaceEditor)
+                CancelCellEdit();
+
             // Invalid editor text remains pending so the user can correct it.
             return true;
         }
@@ -2612,8 +2698,9 @@ public class GroupGrid: Control
         {
             Rect Rect = GetCellRect(fEngine.EditingCell);
             double Height = GetDropDownHeight(Rect);
+            double Width = GetDropDownWidth(Rect);
             SetDropDownListBoxHeight(Height);
-            fActiveDropDownHost.Arrange(Rect.Width <= 0 || Rect.Height <= 0 ? default : new Rect(Rect.X, Rect.Bottom, Rect.Width, Height));
+            fActiveDropDownHost.Arrange(Rect.Width <= 0 || Rect.Height <= 0 ? default : new Rect(Rect.X, Rect.Bottom, Width, Height));
         }
         return Result;
     }
@@ -2629,8 +2716,9 @@ public class GroupGrid: Control
         {
             Rect Rect = GetCellRect(fEngine.EditingCell);
             double Height = GetDropDownHeight(Rect);
+            double Width = GetDropDownWidth(Rect);
             SetDropDownListBoxHeight(Height);
-            fActiveDropDownHost.Measure(new Size(Rect.Width, Height));
+            fActiveDropDownHost.Measure(new Size(Width, Height));
         }
 
         return base.MeasureOverride(AvailableSize);

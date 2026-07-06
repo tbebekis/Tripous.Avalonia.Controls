@@ -29,11 +29,14 @@ static internal class GroupGridDateTextNormalizer
     static bool IsIsoLikeInput(string Text)
     {
         string Value = (Text ?? string.Empty).Trim();
-        if (Value.Contains('-'))
-            return true;
-
         string FirstPart = Regex.Split(Value, @"[^\d]+").FirstOrDefault(Item => !string.IsNullOrWhiteSpace(Item));
         return FirstPart != null && FirstPart.Length == 4;
+    }
+    static string[] GetNumericParts(string Text)
+    {
+        return Regex.Split(Text ?? string.Empty, @"[^\d]+")
+            .Where(Item => !string.IsNullOrWhiteSpace(Item))
+            .ToArray();
     }
     static bool TryGetPartValue(string[] InputParts, string[] PatternParts, char Token, out string Value)
     {
@@ -132,6 +135,36 @@ static internal class GroupGridDateTextNormalizer
             return false;
         }
     }
+    static bool TryNormalizePartialDate(string Text, out DateTime Date)
+    {
+        Date = default;
+        string[] Parts = GetNumericParts(Text);
+        if (Parts.Length == 0 || Parts.Length > 3)
+            return false;
+
+        DateTime Today = DateTime.Today;
+        if (!int.TryParse(Parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int Day))
+            return false;
+
+        int Month = Today.Month;
+        if (Parts.Length >= 2 && !int.TryParse(Parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out Month))
+            return false;
+
+        string YearText = Parts.Length >= 3 ? Parts[2] : Today.Year.ToString(CultureInfo.InvariantCulture);
+        YearText = CompleteYear(YearText, Today);
+        if (!int.TryParse(YearText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int Year))
+            return false;
+
+        try
+        {
+            Date = new DateTime(Year, Month, Day);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     // ● public methods
     /// <summary>
@@ -155,6 +188,8 @@ static internal class GroupGridDateTextNormalizer
         }
         else
         {
+            if (TryNormalizePartialDate(Text, out Date))
+                return true;
             if (TryNormalizeWithPattern(Text, Pattern, out Date))
                 return true;
             if (!string.Equals(Pattern, "yyyy-MM-dd", StringComparison.OrdinalIgnoreCase) && TryNormalizeWithPattern(Text, "yyyy-MM-dd", out Date))

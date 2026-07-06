@@ -27,10 +27,13 @@ Current implemented or planned feature map for `GroupGrid`.
   - `GroupGridNumberColumn`
   - `GroupGridDateColumn`
   - `GroupGridCheckBoxColumn`
+  - `GroupGridLookupColumn`
 - Column width and minimum width.
 - Column visibility.
 - Column display formatting.
+- Date column edit formatting through `EditFormat`.
 - Column horizontal text alignment.
+- Lookup columns support separate `DisplayMember` and `ValueMember`.
 - User flags for resize, reorder, grouping, and hiding.
 - Query methods for all, visible ordered, hidden, and grouped columns.
 
@@ -137,7 +140,17 @@ Current implemented or planned feature map for `GroupGrid`.
 - Begin edit.
 - Commit edit.
 - Cancel edit.
-- First-pass inline text editing with `Enter` commit and `Escape` cancel.
+- In-place editor host with typed editor controls.
+- Text in-place editor.
+- Numeric in-place editor with right alignment and numeric validation.
+- Numeric edits commit valid numbers and cancel invalid text back to the previous value.
+- Date in-place editor with text input, `EditFormat`, and calendar drop-down.
+- Date text normalization supports partial input such as day-only and day-month values.
+- Lookup in-place editor with custom scrollable drop-down list.
+- Boolean cells toggle directly by mouse click or `Space`.
+- Custom in-place editors can be supplied through the grid-level `CreateInplaceEditor` event.
+- Date normalization can be customized through the grid-level `DateNormalize` event.
+- Inline editing uses `Enter` and `Tab` to commit and `Escape` to cancel.
 - Validation and commit events.
 
 ### Hit Testing
@@ -148,7 +161,6 @@ Current implemented or planned feature map for `GroupGrid`.
 
 ## GroupGrid Roadmap
 
-- In-place editor controls.
 - Export:
   - CSV
   - JSON

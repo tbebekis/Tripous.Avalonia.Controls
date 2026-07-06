@@ -12,6 +12,7 @@ public class GroupGridNumberColumn: GroupGridColumn
     public GroupGridNumberColumn()
     {
         ValueType = typeof(decimal);
+        HorizontalAlignment = GroupGridCellHorizontalAlignment.Right;
     }
 
     // ● public methods

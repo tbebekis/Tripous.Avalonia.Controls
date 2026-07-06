@@ -22,7 +22,7 @@ public partial class MainWindow : Window
         Grid.Columns.Add(new GroupGridTextColumn { Name = "Source", Header = "Source", Width = 110 });
         Grid.Columns.Add(new GroupGridLookupColumn { Name = "CustomerId", Header = "Customer", Width = 170, ValueType = typeof(int), LookupItemsSource = CreateCustomers(), DisplayMember = "Name", ValueMember = "Id" });
         Grid.Columns.Add(new GroupGridTextColumn { Name = "Region", Header = "Region", Width = 120 });
-        Grid.Columns.Add(new GroupGridDateColumn { Name = "OrderDate", Header = "Order Date", Width = 120, DisplayFormat = "yyyy-MM-dd" });
+        Grid.Columns.Add(new GroupGridDateColumn { Name = "OrderDate", Header = "Order Date", Width = 120, DisplayFormat = "yyyy-MM-dd", EditFormat = "yyyy-MM-dd" });
         Grid.Columns.Add(new GroupGridNumberColumn { Name = "Quantity", Header = "Qty", Width = 80, ValueType = typeof(int), GroupSummary = GroupGridAggregateKind.Sum, TotalSummary = GroupGridAggregateKind.Sum });
         Grid.Columns.Add(new GroupGridNumberColumn { Name = "Amount", Header = "Amount", Width = 120, ValueType = typeof(decimal), DisplayFormat = "N2", GroupSummary = GroupGridAggregateKind.Sum, TotalSummary = GroupGridAggregateKind.Sum });
         Grid.Columns.Add(new GroupGridCheckBoxColumn { Name = "IsPaid", Header = "Paid", Width = 80 });

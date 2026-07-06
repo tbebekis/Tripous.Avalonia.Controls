@@ -75,6 +75,27 @@ public abstract class GroupGridInplaceEditorBase: Border
     public virtual void SelectDropDownItem(object Item)
     {
     }
+    /// <summary>
+    /// Creates a drop-down control for this editor.
+    /// </summary>
+    /// <returns>The drop-down control, or null when not supported.</returns>
+    public virtual Control CreateDropDownControl()
+    {
+        return null;
+    }
+    /// <summary>
+    /// Called when the editor drop-down opens.
+    /// </summary>
+    /// <param name="DropDownControl">The drop-down control.</param>
+    public virtual void DropDownOpened(Control DropDownControl)
+    {
+    }
+    /// <summary>
+    /// Called when the editor drop-down closes.
+    /// </summary>
+    public virtual void DropDownClosed()
+    {
+    }
 
     // ● properties
     /// <summary>
@@ -97,6 +118,14 @@ public abstract class GroupGridInplaceEditorBase: Border
     /// Gets the selected drop-down item.
     /// </summary>
     public virtual object SelectedDropDownItem => null;
+    /// <summary>
+    /// Gets the preferred drop-down height.
+    /// </summary>
+    public virtual double DropDownHeight => 0;
+    /// <summary>
+    /// Gets the preferred drop-down width.
+    /// </summary>
+    public virtual double DropDownWidth => 0;
 
     // ● events
     /// <summary>
