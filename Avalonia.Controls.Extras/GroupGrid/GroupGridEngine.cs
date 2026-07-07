@@ -449,6 +449,24 @@ public class GroupGridEngine
     }
 
     // ● sort helpers
+    bool IsNumericValue(object Value)
+    {
+        if (Value == null || Value == DBNull.Value)
+            return false;
+
+        TypeCode TypeCode = Type.GetTypeCode(Value.GetType());
+        return TypeCode == TypeCode.Byte
+               || TypeCode == TypeCode.SByte
+               || TypeCode == TypeCode.Int16
+               || TypeCode == TypeCode.UInt16
+               || TypeCode == TypeCode.Int32
+               || TypeCode == TypeCode.UInt32
+               || TypeCode == TypeCode.Int64
+               || TypeCode == TypeCode.UInt64
+               || TypeCode == TypeCode.Single
+               || TypeCode == TypeCode.Double
+               || TypeCode == TypeCode.Decimal;
+    }
     int CompareValues(object Left, object Right)
     {
         if (Left == DBNull.Value)
@@ -461,8 +479,22 @@ public class GroupGridEngine
             return -1;
         if (Right == null)
             return 1;
+        if (IsNumericValue(Left) && IsNumericValue(Right))
+            return Convert.ToDecimal(Left, CultureInfo.CurrentCulture).CompareTo(Convert.ToDecimal(Right, CultureInfo.CurrentCulture));
+        if (Left.GetType().IsInstanceOfType(Right) && Left is IComparable SameTypeComparable)
+            return SameTypeComparable.CompareTo(Right);
+        if (Right.GetType().IsInstanceOfType(Left) && Right is IComparable ReverseComparable)
+            return -ReverseComparable.CompareTo(Left);
         if (Left is IComparable Comparable)
-            return Comparable.CompareTo(Right);
+        {
+            try
+            {
+                return Comparable.CompareTo(Right);
+            }
+            catch (ArgumentException)
+            {
+            }
+        }
 
         return string.Compare(Convert.ToString(Left, CultureInfo.CurrentCulture), Convert.ToString(Right, CultureInfo.CurrentCulture), StringComparison.CurrentCulture);
     }

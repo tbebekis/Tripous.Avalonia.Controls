@@ -104,8 +104,10 @@ public class GroupGridListDataAdapter<T>: IGroupGridDataAdapter, IDisposable
         if (Equals(OldValue, ParsedValue))
             return;
 
+        bool RaisesPropertyChanged = fItems[RowIndex] is INotifyPropertyChanged;
         Property.SetValue(fItems[RowIndex], ParsedValue);
-        Changed?.Invoke(this, GroupGridDataChangedEventArgs.CellChanged(RowIndex, Column.Name));
+        if (!RaisesPropertyChanged)
+            Changed?.Invoke(this, GroupGridDataChangedEventArgs.CellChanged(RowIndex, Column.Name));
     }
     /// <inheritdoc />
     public bool CanSetValue(int RowIndex, GroupGridColumn Column)

@@ -124,4 +124,135 @@ public class GroupGridEngineTests
         Assert.Equal(GroupGridAggregateKind.Sum, Summary.AggregateKind);
         Assert.Equal(16m, Convert.ToDecimal(Summary.Value));
     }
+    /// <summary>
+    /// Verifies current cell and selected cell behavior.
+    /// </summary>
+    [Fact]
+    public void SetCurrentCellAndSelectCurrentCell_WithValidCell_UpdatesCellState()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+
+        Assert.True(Engine.SetCurrentCell(1, NameColumn));
+        Assert.True(Engine.SelectCurrentCell());
+
+        Assert.Equal(1, Engine.CurrentRowIndex);
+        Assert.Same(NameColumn, Engine.CurrentColumn);
+        Assert.True(Engine.IsSelectedRow(1));
+        Assert.True(Engine.IsSelectedCell(new GroupGridCell(1, NameColumn)));
+    }
+    /// <summary>
+    /// Verifies navigation to first and last visible data rows.
+    /// </summary>
+    [Fact]
+    public void MoveCurrentToFirstAndLastRow_WithVisibleRows_UpdatesCurrentRow()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+
+        Assert.True(Engine.MoveCurrentToFirstRow());
+        Assert.Equal(0, Engine.CurrentRowIndex);
+
+        Assert.True(Engine.MoveCurrentToLastRow());
+        Assert.Equal(3, Engine.CurrentRowIndex);
+    }
+    /// <summary>
+    /// Verifies edit commit updates the adapter value and raises commit events.
+    /// </summary>
+    [Fact]
+    public void CommitEdit_WithValidValue_UpdatesValueAndRaisesCommitted()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGridEngine Engine = CreateEngine(Rows);
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        bool Committed = false;
+        Engine.CellValueCommitted += (Sender, Args) => Committed = true;
+
+        Assert.True(Engine.BeginEdit(0, NameColumn));
+        Assert.True(Engine.CommitEdit("Changed"));
+
+        Assert.Equal("Changed", Rows[0].Name);
+        Assert.True(Committed);
+        Assert.False(Engine.IsEditing);
+    }
+    /// <summary>
+    /// Verifies validation cancellation keeps editing active and leaves the value unchanged.
+    /// </summary>
+    [Fact]
+    public void CommitEdit_WhenValidationCancels_DoesNotUpdateValue()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGridEngine Engine = CreateEngine(Rows);
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        Engine.CellValidating += (Sender, Args) => Args.Cancel = true;
+
+        Assert.True(Engine.BeginEdit(0, NameColumn));
+        Assert.False(Engine.CommitEdit("Changed"));
+
+        Assert.Equal("Alpha", Rows[0].Name);
+        Assert.True(Engine.IsEditing);
+    }
+    /// <summary>
+    /// Verifies cancel edit clears editing state and raises cancel event.
+    /// </summary>
+    [Fact]
+    public void CancelEdit_WithActiveEdit_ClearsEditingState()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        bool Canceled = false;
+        Engine.EditCanceled += (Sender, Args) => Canceled = true;
+
+        Assert.True(Engine.BeginEdit(0, NameColumn));
+        Assert.True(Engine.CancelEdit());
+
+        Assert.True(Canceled);
+        Assert.False(Engine.IsEditing);
+    }
+    /// <summary>
+    /// Verifies that clearing sorting restores source row order.
+    /// </summary>
+    [Fact]
+    public void ClearSort_WithActiveSort_RestoresSourceOrder()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+        GroupGridColumn QuantityColumn = Column(Engine, nameof(GridTestRow.Quantity));
+
+        Assert.True(Engine.ToggleSort(QuantityColumn));
+        Assert.True(Engine.ClearSort());
+
+        Assert.Equal(GroupGridSortDirection.None, Engine.SortDirection);
+        Assert.Null(Engine.SortColumn);
+        Assert.Equal(new[] { 0, 1, 2, 3 }, VisibleDataRowIndexes(Engine));
+    }
+    /// <summary>
+    /// Verifies that hiding the current column clears current and selected cells.
+    /// </summary>
+    [Fact]
+    public void SetColumnVisible_WhenCurrentColumnIsHidden_ClearsCellState()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        Assert.True(Engine.SetCurrentCell(0, NameColumn));
+        Assert.True(Engine.SelectCurrentCell());
+
+        Assert.True(Engine.SetColumnVisible(NameColumn, false));
+
+        Assert.False(Engine.HasCurrentCell);
+        Assert.False(Engine.HasSelectedCell);
+    }
+    /// <summary>
+    /// Verifies that row removal coerces current cell state.
+    /// </summary>
+    [Fact]
+    public void DataAdapterRowRemoved_WhenCurrentRowIsRemoved_ClearsCurrentCell()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGridEngine Engine = CreateEngine(Rows);
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        Assert.True(Engine.SetCurrentCell(3, NameColumn));
+
+        Rows.RemoveAt(3);
+
+        Assert.False(Engine.HasCurrentCell);
+    }
 }
