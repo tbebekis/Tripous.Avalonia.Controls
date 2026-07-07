@@ -24,6 +24,25 @@ public class GroupGridControlTests
         /// </summary>
         public string Name { get; set; }
     }
+    /// <summary>
+    /// Test drop-down editor used to verify host callbacks.
+    /// </summary>
+    class TestDropDownEditor: GroupGridDropDownInplaceEditorBase
+    {
+        // ● protected methods
+        /// <inheritdoc />
+        protected override object GetDropDownSelectedValue()
+        {
+            return Value;
+        }
+
+        // ● public methods
+        /// <inheritdoc />
+        public override void SelectDropDownItem(object Item)
+        {
+            Value = Item;
+        }
+    }
 
     // ● private methods
     ObservableCollection<GridTestRow> CreateRows()
@@ -149,6 +168,40 @@ public class GroupGridControlTests
         }
     }
     /// <summary>
+    /// Verifies settings context menu properties expose their defaults and can be changed.
+    /// </summary>
+    [Fact]
+    public void SettingsMenuProperties_WithDefaultGrid_ExposeDefaultsAndCanChange()
+    {
+        GroupGrid Grid = new();
+
+        Assert.True(Grid.IsSettingsMenuItemsVisible);
+        Assert.Equal(GroupGridDropDownPlacementMode.Auto, Grid.DropDownPlacementMode);
+        Assert.Equal("group-grid-settings.json", Grid.SettingsSuggestedFileName);
+        Assert.Equal("Drag a column header here to create a group", Grid.EmptyGroupPanelText);
+
+        Grid.IsSettingsMenuItemsVisible = false;
+        Grid.DropDownPlacementMode = GroupGridDropDownPlacementMode.Inline;
+        Grid.SettingsSuggestedFileName = "orders-list-grid.json";
+        Grid.EmptyGroupPanelText = "Drop here";
+
+        Assert.False(Grid.IsSettingsMenuItemsVisible);
+        Assert.Equal(GroupGridDropDownPlacementMode.Inline, Grid.DropDownPlacementMode);
+        Assert.Equal("orders-list-grid.json", Grid.SettingsSuggestedFileName);
+        Assert.Equal("Drop here", Grid.EmptyGroupPanelText);
+    }
+    /// <summary>
+    /// Verifies drop-down geometry diagnostics expose default rectangles before layout.
+    /// </summary>
+    [Fact]
+    public void DropDownGeometryDiagnostics_WithDefaultGrid_AreDefaultRects()
+    {
+        GroupGrid Grid = new();
+
+        Assert.Equal(default, Grid.LastEditorRect);
+        Assert.Equal(default, Grid.LastDropDownRect);
+    }
+    /// <summary>
     /// Verifies settings load returns false when the full file path does not exist.
     /// </summary>
     [Fact]
@@ -248,6 +301,235 @@ public class GroupGridControlTests
         Assert.True(Grid.SetColumnsReadOnly(new[] { nameof(GridTestRow.Name), nameof(GridTestRow.Quantity) }, false));
         Assert.False(Column(Grid, nameof(GridTestRow.Name)).IsReadOnly);
         Assert.False(Column(Grid, nameof(GridTestRow.Quantity)).IsReadOnly);
+    }
+    /// <summary>
+    /// Verifies single-column best fit updates only the requested column width.
+    /// </summary>
+    [Fact]
+    public void BestFitColumn_WithLongText_UpdatesRequestedColumnWidth()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        Rows[1].Name = "A very long customer display name";
+        GroupGrid Grid = CreateGrid(Rows);
+        GroupGridColumn NameColumn = Column(Grid, nameof(GridTestRow.Name));
+        GroupGridColumn AmountColumn = Column(Grid, nameof(GridTestRow.Amount));
+        NameColumn.Width = 24;
+        AmountColumn.Width = 100;
+
+        bool Changed = Grid.BestFitColumn(NameColumn);
+
+        Assert.True(Changed);
+        Assert.True(NameColumn.Width > 24);
+        Assert.Equal(100, AmountColumn.Width);
+    }
+    /// <summary>
+    /// Verifies single-column best fit respects the minimum column width.
+    /// </summary>
+    [Fact]
+    public void BestFitColumn_WithMinWidth_RespectsMinWidth()
+    {
+        GroupGrid Grid = CreateGrid(CreateRows());
+        GroupGridColumn NameColumn = Column(Grid, nameof(GridTestRow.Name));
+        NameColumn.Width = 24;
+        NameColumn.MinWidth = 160;
+
+        bool Changed = Grid.BestFitColumn(NameColumn);
+
+        Assert.True(Changed);
+        Assert.True(NameColumn.Width >= 160);
+    }
+    /// <summary>
+    /// Verifies string-based best fit returns false for a missing column.
+    /// </summary>
+    [Fact]
+    public void BestFitColumn_WithMissingColumnName_ReturnsFalse()
+    {
+        GroupGrid Grid = CreateGrid(CreateRows());
+
+        Assert.False(Grid.BestFitColumn("Missing"));
+    }
+    /// <summary>
+    /// Verifies all-column best fit returns the number of changed columns.
+    /// </summary>
+    [Fact]
+    public void BestFitColumns_WithNarrowColumns_ReturnsChangedCount()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        Rows[0].Category = "Long category value";
+        Rows[0].Name = "Long customer name";
+        GroupGrid Grid = CreateGrid(Rows);
+        GroupGridColumn CategoryColumn = Column(Grid, nameof(GridTestRow.Category));
+        GroupGridColumn NameColumn = Column(Grid, nameof(GridTestRow.Name));
+        GroupGridColumn AmountColumn = Column(Grid, nameof(GridTestRow.Amount));
+        GroupGridColumn QuantityColumn = Column(Grid, nameof(GridTestRow.Quantity));
+        CategoryColumn.Width = 24;
+        NameColumn.Width = 24;
+        QuantityColumn.Width = 24;
+        AmountColumn.Width = 24;
+
+        int ChangedCount = Grid.BestFitColumns();
+
+        Assert.Equal(4, ChangedCount);
+        Assert.True(CategoryColumn.Width > 24);
+        Assert.True(NameColumn.Width > 24);
+        Assert.True(QuantityColumn.Width > 24);
+        Assert.True(AmountColumn.Width > 24);
+    }
+    /// <summary>
+    /// Verifies the public current-row API follows the current cell row.
+    /// </summary>
+    [Fact]
+    public void CurrentRowApi_WithCurrentCell_ReturnsRowAndRaisesRowChanged()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGrid Grid = CreateGrid(Rows);
+        int EventCount = 0;
+        Grid.CurrentRowChanged += (Sender, Args) => EventCount++;
+
+        Assert.Equal(-1, Grid.CurrentRowIndex);
+        Assert.Null(Grid.CurrentRow);
+
+        Assert.True(Grid.SetCurrentCell(1, Column(Grid, nameof(GridTestRow.Name))));
+
+        Assert.Equal(1, Grid.CurrentRowIndex);
+        Assert.Same(Rows[1], Grid.CurrentRow);
+        Assert.Equal(1, EventCount);
+
+        Assert.True(Grid.SetCurrentCell(1, Column(Grid, nameof(GridTestRow.Quantity))));
+
+        Assert.Equal(1, Grid.CurrentRowIndex);
+        Assert.Same(Rows[1], Grid.CurrentRow);
+        Assert.Equal(1, EventCount);
+
+        Grid.ClearCurrentCell();
+
+        Assert.Equal(-1, Grid.CurrentRowIndex);
+        Assert.Null(Grid.CurrentRow);
+        Assert.Equal(2, EventCount);
+    }
+    /// <summary>
+    /// Verifies control-level cell committed event is raised after an edit commit.
+    /// </summary>
+    [Fact]
+    public void CellValueCommitted_WithCommitEdit_FiresControlLevelEvent()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGrid Grid = CreateGrid(Rows);
+        GroupGridColumn NameColumn = Column(Grid, nameof(GridTestRow.Name));
+        GroupGridCellEditEventArgs CommittedArgs = null;
+        Grid.CellValueCommitted += (Sender, Args) => CommittedArgs = Args;
+
+        Assert.True(Grid.SetCurrentCell(0, NameColumn));
+        Assert.True(Grid.BeginEdit());
+        Assert.True(Grid.CommitEdit("Changed"));
+
+        Assert.Equal("Changed", Rows[0].Name);
+        Assert.NotNull(CommittedArgs);
+        Assert.Equal(new GroupGridCell(0, NameColumn), CommittedArgs.Cell);
+        Assert.Equal("Changed", CommittedArgs.Value);
+    }
+    /// <summary>
+    /// Verifies control-level committing event can modify the value before it is written.
+    /// </summary>
+    [Fact]
+    public void CellValueCommitting_WithModifiedValue_UpdatesCommittedValue()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGrid Grid = CreateGrid(Rows);
+        GroupGridColumn NameColumn = Column(Grid, nameof(GridTestRow.Name));
+        Grid.CellValueCommitting += (Sender, Args) => Args.Value = "Modified";
+
+        Assert.True(Grid.SetCurrentCell(0, NameColumn));
+        Assert.True(Grid.BeginEdit());
+        Assert.True(Grid.CommitEdit("Changed"));
+
+        Assert.Equal("Modified", Rows[0].Name);
+    }
+    /// <summary>
+    /// Verifies control-level committing cancellation keeps editing active and leaves the value unchanged.
+    /// </summary>
+    [Fact]
+    public void CellValueCommitting_WhenCanceled_KeepsEditingAndValueUnchanged()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGrid Grid = CreateGrid(Rows);
+        GroupGridColumn NameColumn = Column(Grid, nameof(GridTestRow.Name));
+        Grid.CellValueCommitting += (Sender, Args) => Args.Cancel = true;
+
+        Assert.True(Grid.SetCurrentCell(0, NameColumn));
+        Assert.True(Grid.BeginEdit());
+        Assert.False(Grid.CommitEdit("Changed"));
+
+        Assert.Equal("Alpha", Rows[0].Name);
+        Assert.True(Grid.IsEditing);
+    }
+    /// <summary>
+    /// Verifies control-level edit canceled event is raised when editing is canceled.
+    /// </summary>
+    [Fact]
+    public void EditCanceled_WithCancelEdit_FiresControlLevelEvent()
+    {
+        GroupGrid Grid = CreateGrid(CreateRows());
+        GroupGridColumn NameColumn = Column(Grid, nameof(GridTestRow.Name));
+        GroupGridCellEditEventArgs CanceledArgs = null;
+        Grid.EditCanceled += (Sender, Args) => CanceledArgs = Args;
+
+        Assert.True(Grid.SetCurrentCell(0, NameColumn));
+        Assert.True(Grid.BeginEdit());
+        Assert.True(Grid.CancelEdit());
+
+        Assert.NotNull(CanceledArgs);
+        Assert.Equal(new GroupGridCell(0, NameColumn), CanceledArgs.Cell);
+        Assert.Equal("Alpha", CanceledArgs.Value);
+    }
+    /// <summary>
+    /// Verifies a custom drop-down editor can commit a value through the host callback.
+    /// </summary>
+    [Fact]
+    public void DropDownEditorHost_WithCommitValue_CommitsEditorValue()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGrid Grid = CreateGrid(Rows);
+        GroupGridColumn NameColumn = Column(Grid, nameof(GridTestRow.Name));
+        TestDropDownEditor Editor = new();
+        Grid.CreateInplaceEditor += (Sender, Args) =>
+        {
+            Args.Editor = Editor;
+            Args.Handled = true;
+        };
+
+        Assert.True(Grid.SetCurrentCell(0, NameColumn));
+        Assert.True(Grid.BeginEdit());
+        Assert.NotNull(Editor.DropDownHost);
+        Assert.True(Editor.DropDownHost.CommitDropDownValue("HostChanged"));
+
+        Assert.Equal("HostChanged", Rows[0].Name);
+        Assert.False(Grid.IsEditing);
+    }
+    /// <summary>
+    /// Verifies a custom drop-down editor can cancel the drop-down without committing a value.
+    /// </summary>
+    [Fact]
+    public void DropDownEditorHost_WithCancelDropDown_DoesNotCommitValue()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGrid Grid = CreateGrid(Rows);
+        GroupGridColumn NameColumn = Column(Grid, nameof(GridTestRow.Name));
+        TestDropDownEditor Editor = new();
+        Grid.CreateInplaceEditor += (Sender, Args) =>
+        {
+            Args.Editor = Editor;
+            Args.Handled = true;
+        };
+
+        Assert.True(Grid.SetCurrentCell(0, NameColumn));
+        Assert.True(Grid.BeginEdit());
+        Editor.Value = "Pending";
+
+        Assert.True(Editor.DropDownHost.CancelDropDown());
+
+        Assert.Equal("Alpha", Rows[0].Name);
+        Assert.True(Grid.IsEditing);
     }
     /// <summary>
     /// Verifies row scrolling API uses adapter row indexes and respects the current projection.

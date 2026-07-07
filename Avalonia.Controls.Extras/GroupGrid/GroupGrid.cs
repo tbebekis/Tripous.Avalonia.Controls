@@ -6,7 +6,7 @@ namespace Avalonia.Controls;
 /// <summary>
 /// Provides the Avalonia visual surface for a <see cref="GroupGridEngine"/>.
 /// </summary>
-public class GroupGrid: Control
+public class GroupGrid: Control, IGroupGridDropDownEditorHost
 {
     // ● public fields
     // ● theme brush properties
@@ -153,6 +153,10 @@ public class GroupGrid: Control
     // ● column interaction state
     bool fColumnDragFromGroupPanel;
     bool fIsColumnManagerMenuItemVisible = true;
+    bool fIsSettingsMenuItemsVisible = true;
+    GroupGridDropDownPlacementMode fDropDownPlacementMode = GroupGridDropDownPlacementMode.Auto;
+    string fSettingsSuggestedFileName = "group-grid-settings.json";
+    string fEmptyGroupPanelText = "Drag a column header here to create a group";
     double fVerticalScrollDragOffset;
     double fHorizontalScrollDragOffset;
     double fHorizontalOffset;
@@ -179,6 +183,9 @@ public class GroupGrid: Control
     Border fActiveDropDownHost;
     Control fActiveDropDownControl;
     ListBox fActiveDropDownListBox;
+    Popup fActiveDropDownPopup;
+    Rect fLastEditorRect;
+    Rect fLastDropDownRect;
     int fActiveDropDownItemCount;
     string fFilterEditText = string.Empty;
     string fCellEditText = string.Empty;
@@ -238,6 +245,31 @@ public class GroupGrid: Control
         ApplyIdColumnsVisibility();
         Engine_Changed(Sender, Args);
     }
+    void Engine_CurrentRowChanged(object Sender, EventArgs Args)
+    {
+        Engine_Changed(Sender, Args);
+        CurrentRowChanged?.Invoke(this, EventArgs.Empty);
+    }
+    void Engine_BeginningEdit(object Sender, GroupGridCellEditEventArgs Args)
+    {
+        BeginningEdit?.Invoke(this, Args);
+    }
+    void Engine_CellValidating(object Sender, GroupGridCellEditEventArgs Args)
+    {
+        CellValidating?.Invoke(this, Args);
+    }
+    void Engine_CellValueCommitting(object Sender, GroupGridCellEditEventArgs Args)
+    {
+        CellValueCommitting?.Invoke(this, Args);
+    }
+    void Engine_CellValueCommitted(object Sender, GroupGridCellEditEventArgs Args)
+    {
+        CellValueCommitted?.Invoke(this, Args);
+    }
+    void Engine_EditCanceled(object Sender, GroupGridCellEditEventArgs Args)
+    {
+        EditCanceled?.Invoke(this, Args);
+    }
     void Engine_InsertingRow(object Sender, GroupGridRowOperationEventArgs Args)
     {
         InsertingRow?.Invoke(this, Args);
@@ -269,8 +301,13 @@ public class GroupGrid: Control
         Engine.GroupColumnsChanged += Engine_Changed;
         Engine.VisibleNodesChanged += Engine_Changed;
         Engine.CurrentCellChanged += Engine_Changed;
-        Engine.CurrentRowChanged += Engine_Changed;
+        Engine.CurrentRowChanged += Engine_CurrentRowChanged;
         Engine.SelectionChanged += Engine_Changed;
+        Engine.BeginningEdit += Engine_BeginningEdit;
+        Engine.CellValidating += Engine_CellValidating;
+        Engine.CellValueCommitting += Engine_CellValueCommitting;
+        Engine.CellValueCommitted += Engine_CellValueCommitted;
+        Engine.EditCanceled += Engine_EditCanceled;
         Engine.EditingCellChanged += Engine_Changed;
         Engine.ViewportChanged += Engine_Changed;
         Engine.SummariesChanged += Engine_Changed;
@@ -293,8 +330,13 @@ public class GroupGrid: Control
         Engine.GroupColumnsChanged -= Engine_Changed;
         Engine.VisibleNodesChanged -= Engine_Changed;
         Engine.CurrentCellChanged -= Engine_Changed;
-        Engine.CurrentRowChanged -= Engine_Changed;
+        Engine.CurrentRowChanged -= Engine_CurrentRowChanged;
         Engine.SelectionChanged -= Engine_Changed;
+        Engine.BeginningEdit -= Engine_BeginningEdit;
+        Engine.CellValidating -= Engine_CellValidating;
+        Engine.CellValueCommitting -= Engine_CellValueCommitting;
+        Engine.CellValueCommitted -= Engine_CellValueCommitted;
+        Engine.EditCanceled -= Engine_EditCanceled;
         Engine.EditingCellChanged -= Engine_Changed;
         Engine.ViewportChanged -= Engine_Changed;
         Engine.SummariesChanged -= Engine_Changed;
@@ -727,6 +769,45 @@ public class GroupGrid: Control
         InvalidateVisual();
         return true;
     }
+    double MeasureBestFitTextWidth(string Text, FontWeight Weight = FontWeight.Normal)
+    {
+        if (string.IsNullOrEmpty(Text))
+            return 0;
+
+        try
+        {
+            return CreateText(Text, TextBrush, 100000, Weight).Width;
+        }
+        catch (InvalidOperationException)
+        {
+            return Text.Length * (Weight == FontWeight.Normal ? 7 : 8);
+        }
+    }
+    double GetBestFitColumnWidth(GroupGridColumn Column, int MaxRows)
+    {
+        if (Column == null)
+            return 0;
+
+        double Width = Math.Max(Column.MinWidth, MeasureBestFitTextWidth(string.IsNullOrWhiteSpace(Column.Header) ? Column.Name : Column.Header, FontWeight.SemiBold) + 28);
+        string FilterText = fEngine.GetColumnFilter(Column);
+        if (!string.IsNullOrEmpty(FilterText))
+            Width = Math.Max(Width, MeasureBestFitTextWidth(FilterText) + 16);
+
+        int DataRowsMeasured = 0;
+        for (int Index = 0; Index < fEngine.VisibleNodeCount; Index++)
+        {
+            GroupGridRowInfo RowInfo = fEngine.GetVisibleRowInfo(Index);
+            if (!RowInfo.IsDataRow)
+                continue;
+
+            Width = Math.Max(Width, MeasureBestFitTextWidth(fEngine.GetDisplayText(Index, Column)) + 16);
+            DataRowsMeasured++;
+            if (MaxRows > 0 && DataRowsMeasured >= MaxRows)
+                break;
+        }
+
+        return Math.Ceiling(Width);
+    }
     bool GetColumnDropInfo(Point Point, out int ColumnIndex, out double X)
     {
         ColumnIndex = -1;
@@ -1094,14 +1175,31 @@ public class GroupGrid: Control
     }
 
     // ● editor geometry helpers
-    double GetDropDownHeight(Rect EditorRect)
+    Rect GetEditorRect()
+    {
+        Rect CellRect = GetCellRect(fEngine.EditingCell);
+        return CellRect.Width <= 0 || CellRect.Height <= 0 ? default : InsetRect(CellRect, 2);
+    }
+    bool UsesPopupDropDown()
+    {
+        return fDropDownPlacementMode != GroupGridDropDownPlacementMode.Inline;
+    }
+    double GetDesiredDropDownHeight()
     {
         if (fActiveEditor != null && fActiveEditor.DropDownHeight > 0)
-            return Math.Min(fActiveEditor.DropDownHeight, Math.Max(24, Bounds.Height - EditorRect.Bottom));
+            return fActiveEditor.DropDownHeight;
 
         double ItemHeight = 26;
         int Count = fActiveDropDownItemCount;
-        double DesiredHeight = Math.Max(ItemHeight, Math.Min(220, Count * ItemHeight + 2));
+        return Math.Max(ItemHeight, Math.Min(220, Count * ItemHeight + 2));
+    }
+    double GetDropDownHeight(Rect EditorRect)
+    {
+        double DesiredHeight = GetDesiredDropDownHeight();
+        if (UsesPopupDropDown())
+            return DesiredHeight;
+
+        double ItemHeight = 26;
         double AvailableBelow = Math.Max(0, Bounds.Height - EditorRect.Bottom);
         return Math.Max(ItemHeight, Math.Min(DesiredHeight, AvailableBelow));
     }
@@ -1132,6 +1230,61 @@ public class GroupGrid: Control
         double ListBoxHeight = Math.Max(24, Height - 2);
         fActiveDropDownListBox.Height = ListBoxHeight;
         fActiveDropDownListBox.MaxHeight = ListBoxHeight;
+    }
+    Rect GetDropDownRect(Rect EditorRect)
+    {
+        if (EditorRect.Width <= 0 || EditorRect.Height <= 0)
+            return default;
+
+        double Height = GetDropDownHeight(EditorRect);
+        double Width = GetDropDownWidth(EditorRect);
+        return new Rect(EditorRect.X, EditorRect.Bottom, Width, Height);
+    }
+    void ConfigureActiveDropDownPopup(Rect EditorRect)
+    {
+        if (fActiveDropDownPopup == null || EditorRect.Width <= 0 || EditorRect.Height <= 0)
+            return;
+
+        fActiveDropDownPopup.PlacementTarget = this;
+        fActiveDropDownPopup.Placement = PlacementMode.AnchorAndGravity;
+        fActiveDropDownPopup.PlacementRect = EditorRect;
+        fActiveDropDownPopup.PlacementAnchor = PopupAnchor.BottomLeft;
+        fActiveDropDownPopup.PlacementGravity = PopupGravity.BottomRight;
+        fActiveDropDownPopup.PlacementConstraintAdjustment = PopupPositionerConstraintAdjustment.FlipY | PopupPositionerConstraintAdjustment.SlideX | PopupPositionerConstraintAdjustment.SlideY;
+    }
+    void ActiveDropDownPopup_Closed(object Sender, EventArgs Args)
+    {
+        if (fActiveDropDownPopup == null)
+            return;
+
+        CloseActiveDropDown();
+        fActiveEditor?.FocusEditor();
+    }
+    void IGroupGridDropDownEditorHost.CloseDropDown()
+    {
+        CloseActiveDropDown();
+    }
+    bool IGroupGridDropDownEditorHost.CommitDropDownValue(object Value)
+    {
+        if (fActiveEditor == null)
+            return false;
+
+        fActiveEditor.SelectDropDownItem(Value);
+        CloseActiveDropDown();
+        return CommitCellEdit();
+    }
+    bool IGroupGridDropDownEditorHost.CancelDropDown()
+    {
+        if (fActiveEditor == null)
+            return false;
+
+        CloseActiveDropDown();
+        fActiveEditor.FocusEditor();
+        return true;
+    }
+    void IGroupGridDropDownEditorHost.RestoreEditorFocus()
+    {
+        fActiveEditor?.FocusEditor();
     }
     bool CanEditTextCell(GroupGridCell Cell)
     {
@@ -1169,6 +1322,8 @@ public class GroupGrid: Control
         CloseActiveEditor();
         GroupGridInplaceEditorBase Editor = CreateCellEditor(Cell.Column);
         Editor.Background = EditingBrush;
+        if (Editor is GroupGridDropDownInplaceEditorBase DropDownEditor)
+            DropDownEditor.DropDownHost = this;
         if (Editor is GroupGridDateInplaceEditor DateEditor)
         {
             DateEditor.Foreground = TextBrush;
@@ -1255,8 +1410,27 @@ public class GroupGrid: Control
         };
         fActiveDropDownControl = DropDownControl;
         fActiveDropDownHost = Host;
-        VisualChildren.Add(Host);
-        LogicalChildren.Add(Host);
+        if (UsesPopupDropDown())
+        {
+            Rect EditorRect = GetEditorRect();
+            Popup Popup = new()
+            {
+                Child = Host,
+                IsLightDismissEnabled = true,
+                OverlayDismissEventPassThrough = true,
+                ShouldUseOverlayLayer = true,
+            };
+            Popup.Closed += ActiveDropDownPopup_Closed;
+            fActiveDropDownPopup = Popup;
+            LogicalChildren.Add(Popup);
+            ConfigureActiveDropDownPopup(EditorRect);
+            Popup.IsOpen = true;
+        }
+        else
+        {
+            VisualChildren.Add(Host);
+            LogicalChildren.Add(Host);
+        }
         InvalidateMeasure();
         InvalidateArrange();
         Dispatcher.UIThread.Post(() =>
@@ -1285,8 +1459,19 @@ public class GroupGrid: Control
             Calendar.RemoveHandler(InputElement.DoubleTappedEvent, ActiveDropDownCalendar_DoubleTapped);
         }
         fActiveEditor?.DropDownClosed();
-        LogicalChildren.Remove(fActiveDropDownHost);
-        VisualChildren.Remove(fActiveDropDownHost);
+        if (fActiveDropDownPopup != null)
+        {
+            fActiveDropDownPopup.Closed -= ActiveDropDownPopup_Closed;
+            fActiveDropDownPopup.IsOpen = false;
+            fActiveDropDownPopup.Child = null;
+            LogicalChildren.Remove(fActiveDropDownPopup);
+            fActiveDropDownPopup = null;
+        }
+        else
+        {
+            LogicalChildren.Remove(fActiveDropDownHost);
+            VisualChildren.Remove(fActiveDropDownHost);
+        }
         fActiveDropDownControl = null;
         fActiveDropDownListBox = null;
         fActiveDropDownHost = null;
@@ -1304,9 +1489,7 @@ public class GroupGrid: Control
         if (fActiveEditor == null || fActiveDropDownListBox?.SelectedItem == null)
             return false;
 
-        fActiveEditor.SelectDropDownItem(fActiveDropDownListBox.SelectedItem);
-        CloseActiveDropDown();
-        return CommitCellEdit();
+        return ((IGroupGridDropDownEditorHost)this).CommitDropDownValue(fActiveDropDownListBox.SelectedItem);
     }
     void ActiveDropDownListBox_KeyDown(object Sender, KeyEventArgs Args)
     {
@@ -1323,9 +1506,7 @@ public class GroupGrid: Control
                 Args.Handled = true;
                 break;
             case Key.Escape:
-                CloseActiveDropDown();
-                fActiveEditor?.FocusEditor();
-                Args.Handled = true;
+                Args.Handled = ((IGroupGridDropDownEditorHost)this).CancelDropDown();
                 break;
         }
     }
@@ -1340,9 +1521,7 @@ public class GroupGrid: Control
         if (fActiveEditor == null || fActiveDropDownControl is not Calendar Calendar || Calendar.SelectedDate == null)
             return false;
 
-        fActiveEditor.SelectDropDownItem(Calendar.SelectedDate.Value);
-        CloseActiveDropDown();
-        return CommitCellEdit();
+        return ((IGroupGridDropDownEditorHost)this).CommitDropDownValue(Calendar.SelectedDate.Value);
     }
     void ActiveDropDownCalendar_KeyDown(object Sender, KeyEventArgs Args)
     {
@@ -1359,9 +1538,7 @@ public class GroupGrid: Control
                 Args.Handled = true;
                 break;
             case Key.Escape:
-                CloseActiveDropDown();
-                fActiveEditor?.FocusEditor();
-                Args.Handled = true;
+                Args.Handled = ((IGroupGridDropDownEditorHost)this).CancelDropDown();
                 break;
         }
     }
@@ -1425,8 +1602,10 @@ public class GroupGrid: Control
         }
         fActiveEditor.ValueChanged -= Editor_ValueChanged;
         fActiveEditor.DropDownRequested -= Editor_DropDownRequested;
-        fActiveEditor.Cleanup();
         CloseActiveDropDown();
+        fActiveEditor.Cleanup();
+        if (fActiveEditor is GroupGridDropDownInplaceEditorBase DropDownEditor)
+            DropDownEditor.DropDownHost = null;
         LogicalChildren.Remove(fActiveEditor);
         VisualChildren.Remove(fActiveEditor);
         fActiveEditor = null;
@@ -1695,6 +1874,13 @@ public class GroupGrid: Control
         {
             Items.Add(new Separator());
             Items.Add(CreateMenuItem("Column Manager...", true, RequestColumnManager));
+        }
+
+        if (fIsSettingsMenuItemsVisible)
+        {
+            Items.Add(new Separator());
+            Items.Add(CreateMenuItem("Save Settings...", true, SaveSettingsAsync));
+            Items.Add(CreateMenuItem("Load Settings...", true, LoadSettingsAsync));
         }
 
         Items.Add(new Separator());
@@ -1971,6 +2157,52 @@ public class GroupGrid: Control
 
         return Result;
     }
+    async void SaveSettingsAsync()
+    {
+        TopLevel Owner = TopLevel.GetTopLevel(this);
+        if (Owner == null)
+            return;
+
+        FilePickerFileType FileType = new("JSON")
+        {
+            Patterns = new[] { "*.json" },
+        };
+        FilePickerSaveOptions Options = new()
+        {
+            Title = "Save Settings",
+            SuggestedFileName = string.IsNullOrWhiteSpace(SettingsSuggestedFileName) ? "group-grid-settings.json" : SettingsSuggestedFileName,
+            DefaultExtension = "json",
+            FileTypeChoices = new[] { FileType },
+        };
+        IStorageFile File = await Owner.StorageProvider.SaveFilePickerAsync(Options);
+        if (File == null || !File.Path.IsFile)
+            return;
+
+        SaveSettings(File.Path.LocalPath);
+    }
+    async void LoadSettingsAsync()
+    {
+        TopLevel Owner = TopLevel.GetTopLevel(this);
+        if (Owner == null)
+            return;
+
+        FilePickerFileType FileType = new("JSON")
+        {
+            Patterns = new[] { "*.json" },
+        };
+        FilePickerOpenOptions Options = new()
+        {
+            Title = "Load Settings",
+            AllowMultiple = false,
+            FileTypeFilter = new[] { FileType },
+        };
+        IReadOnlyList<IStorageFile> Files = await Owner.StorageProvider.OpenFilePickerAsync(Options);
+        IStorageFile File = Files.FirstOrDefault();
+        if (File == null || !File.Path.IsFile)
+            return;
+
+        LoadSettings(File.Path.LocalPath);
+    }
     async void ExportAsync(GroupGridExporter Exporter)
     {
         if (Exporter == null)
@@ -2188,6 +2420,12 @@ public class GroupGrid: Control
     void DrawGroupPanel(DrawingContext Context, double Y, double Height, double Width)
     {
         DrawBand(Context, new Rect(0, Y, Width, Height), GroupPanelBrush);
+
+        if (fEngine.GroupColumns.Count == 0)
+        {
+            DrawText(Context, EmptyGroupPanelText, new Rect(8, Y, Math.Max(0, Width - 16), Height), MutedTextBrush, FontWeight.SemiBold);
+            return;
+        }
 
         double X = 6;
         foreach (GroupGridColumn Column in fEngine.GroupColumns)
@@ -2989,18 +3227,32 @@ public class GroupGrid: Control
     {
         UpdateViewport(FinalSize);
         Size Result = base.ArrangeOverride(FinalSize);
+        Rect EditorRect = GetEditorRect();
+        fLastEditorRect = default;
+        fLastDropDownRect = default;
         if (fActiveEditor != null)
         {
-            Rect Rect = GetCellRect(fEngine.EditingCell);
-            fActiveEditor.Arrange(Rect.Width <= 0 || Rect.Height <= 0 ? default : InsetRect(Rect, 2));
+            fLastEditorRect = EditorRect;
+            fActiveEditor.Arrange(EditorRect);
         }
         if (fActiveDropDownHost != null)
         {
-            Rect Rect = GetCellRect(fEngine.EditingCell);
-            double Height = GetDropDownHeight(Rect);
-            double Width = GetDropDownWidth(Rect);
+            fLastEditorRect = EditorRect;
+            Rect DropDownRect = GetDropDownRect(EditorRect);
+            double Height = DropDownRect.Height;
+            double Width = DropDownRect.Width;
             SetDropDownListBoxHeight(Height);
-            fActiveDropDownHost.Arrange(Rect.Width <= 0 || Rect.Height <= 0 ? default : new Rect(Rect.X, Rect.Bottom, Width, Height));
+            fLastDropDownRect = DropDownRect;
+            if (fActiveDropDownPopup != null)
+            {
+                fActiveDropDownHost.Width = Width;
+                fActiveDropDownHost.Height = Height;
+                ConfigureActiveDropDownPopup(EditorRect);
+            }
+            else
+            {
+                fActiveDropDownHost.Arrange(DropDownRect);
+            }
         }
         return Result;
     }
@@ -3009,16 +3261,25 @@ public class GroupGrid: Control
     {
         if (fActiveEditor != null)
         {
-            Rect Rect = GetCellRect(fEngine.EditingCell);
+            Rect Rect = GetEditorRect();
             fActiveEditor.Measure(Rect.Size);
         }
         if (fActiveDropDownHost != null)
         {
-            Rect Rect = GetCellRect(fEngine.EditingCell);
-            double Height = GetDropDownHeight(Rect);
-            double Width = GetDropDownWidth(Rect);
+            Rect Rect = GetEditorRect();
+            Rect DropDownRect = GetDropDownRect(Rect);
+            double Height = DropDownRect.Height;
+            double Width = DropDownRect.Width;
             SetDropDownListBoxHeight(Height);
-            fActiveDropDownHost.Measure(new Size(Width, Height));
+            if (fActiveDropDownPopup != null)
+            {
+                fActiveDropDownHost.Width = Width;
+                fActiveDropDownHost.Height = Height;
+            }
+            else
+            {
+                fActiveDropDownHost.Measure(new Size(Width, Height));
+            }
         }
 
         return base.MeasureOverride(AvailableSize);
@@ -3512,6 +3773,43 @@ public class GroupGrid: Control
         return fEngine.MoveColumn(Column, ColumnIndex);
     }
     /// <summary>
+    /// Resizes a visible value column to fit its header, filter text, and projected data row text.
+    /// </summary>
+    /// <param name="Column">The grid column.</param>
+    /// <param name="MaxRows">The maximum number of projected data rows to measure. Use zero or a negative value to measure all rows.</param>
+    /// <returns>True if the column width changed; otherwise, false.</returns>
+    public bool BestFitColumn(GroupGridColumn Column, int MaxRows = 2500)
+    {
+        if (Column == null || !fEngine.GetVisibleValueColumns().Contains(Column))
+            return false;
+
+        return SetColumnWidth(Column, GetBestFitColumnWidth(Column, MaxRows));
+    }
+    /// <summary>
+    /// Resizes a visible value column to fit its header, filter text, and projected data row text.
+    /// </summary>
+    /// <param name="ColumnName">The column name.</param>
+    /// <param name="MaxRows">The maximum number of projected data rows to measure. Use zero or a negative value to measure all rows.</param>
+    /// <returns>True if the column was found and its width changed; otherwise, false.</returns>
+    public bool BestFitColumn(string ColumnName, int MaxRows = 2500)
+    {
+        return BestFitColumn(FindColumn(ColumnName), MaxRows);
+    }
+    /// <summary>
+    /// Resizes all visible value columns to fit their headers, filter text, and projected data row text.
+    /// </summary>
+    /// <param name="MaxRows">The maximum number of projected data rows to measure per column. Use zero or a negative value to measure all rows.</param>
+    /// <returns>The number of columns whose width changed.</returns>
+    public int BestFitColumns(int MaxRows = 2500)
+    {
+        int Result = 0;
+        foreach (GroupGridColumn Column in fEngine.GetVisibleValueColumns())
+            if (BestFitColumn(Column, MaxRows))
+                Result++;
+
+        return Result;
+    }
+    /// <summary>
     /// Shows or hides a column.
     /// </summary>
     /// <param name="Column">The grid column.</param>
@@ -3946,6 +4244,38 @@ public class GroupGrid: Control
         set => fIsColumnManagerMenuItemVisible = value;
     }
     /// <summary>
+    /// Gets or sets a value indicating whether the save/load settings menu items are visible in the column context menu.
+    /// </summary>
+    public bool IsSettingsMenuItemsVisible
+    {
+        get => fIsSettingsMenuItemsVisible;
+        set => fIsSettingsMenuItemsVisible = value;
+    }
+    /// <summary>
+    /// Gets or sets how in-place editor drop-down controls are hosted.
+    /// </summary>
+    public GroupGridDropDownPlacementMode DropDownPlacementMode
+    {
+        get => fDropDownPlacementMode;
+        set => fDropDownPlacementMode = value;
+    }
+    /// <summary>
+    /// Gets or sets the suggested file name used by the built-in save settings file picker.
+    /// </summary>
+    public string SettingsSuggestedFileName
+    {
+        get => fSettingsSuggestedFileName;
+        set => fSettingsSuggestedFileName = value;
+    }
+    /// <summary>
+    /// Gets or sets the text displayed in the group panel when no columns are grouped.
+    /// </summary>
+    public string EmptyGroupPanelText
+    {
+        get => fEmptyGroupPanelText;
+        set => fEmptyGroupPanelText = value;
+    }
+    /// <summary>
     /// Gets or sets an item source that is a <see cref="DataTable"/>, <see cref="DataView"/>, or implements <see cref="IList{T}"/>.
     /// When a <see cref="DataTable"/> is assigned, its <see cref="DataTable.DefaultView"/> is used.
     /// </summary>
@@ -4164,6 +4494,25 @@ public class GroupGrid: Control
     /// </summary>
     public GroupGridCell CurrentCell => fEngine.CurrentCell;
     /// <summary>
+    /// Gets the current adapter row index, or -1 when there is no current row.
+    /// </summary>
+    public int CurrentRowIndex => CurrentCell.IsEmpty ? -1 : CurrentCell.RowIndex;
+    /// <summary>
+    /// Gets the current adapter row object, or null when there is no current row.
+    /// </summary>
+    public object CurrentRow
+    {
+        get
+        {
+            int RowIndex = CurrentRowIndex;
+            IGroupGridDataAdapter Adapter = DataAdapter;
+            if (Adapter == null || RowIndex < 0 || RowIndex >= Adapter.RowCount)
+                return null;
+
+            return Adapter.GetRow(RowIndex);
+        }
+    }
+    /// <summary>
     /// Gets the selected cell.
     /// </summary>
     public GroupGridCell SelectedCell => fEngine.SelectedCell;
@@ -4199,6 +4548,14 @@ public class GroupGrid: Control
     /// Gets a value indicating whether the grid is editing a cell.
     /// </summary>
     public bool IsEditing => fEngine.IsEditing;
+    /// <summary>
+    /// Gets the last arranged editor rectangle used for drop-down geometry diagnostics.
+    /// </summary>
+    public Rect LastEditorRect => fLastEditorRect;
+    /// <summary>
+    /// Gets the last arranged drop-down host rectangle used for drop-down geometry diagnostics.
+    /// </summary>
+    public Rect LastDropDownRect => fLastDropDownRect;
 
     // ● viewport state properties
     /// <summary>
@@ -4236,6 +4593,34 @@ public class GroupGrid: Control
     }
 
     // ● events
+    // ● state events
+    /// <summary>
+    /// Occurs when the current adapter row changes.
+    /// </summary>
+    public event EventHandler CurrentRowChanged;
+
+    // ● editing events
+    /// <summary>
+    /// Occurs before cell editing begins. Set Cancel to true to stop editing.
+    /// </summary>
+    public event EventHandler<GroupGridCellEditEventArgs> BeginningEdit;
+    /// <summary>
+    /// Occurs before an edited value is committed. Set Cancel to true to keep editing active.
+    /// </summary>
+    public event EventHandler<GroupGridCellEditEventArgs> CellValidating;
+    /// <summary>
+    /// Occurs after validation and before the edited value is written to the adapter.
+    /// </summary>
+    public event EventHandler<GroupGridCellEditEventArgs> CellValueCommitting;
+    /// <summary>
+    /// Occurs after the edited value is written to the adapter.
+    /// </summary>
+    public event EventHandler<GroupGridCellEditEventArgs> CellValueCommitted;
+    /// <summary>
+    /// Occurs when cell editing is canceled.
+    /// </summary>
+    public event EventHandler<GroupGridCellEditEventArgs> EditCanceled;
+
     // ● command events
     /// <summary>
     /// Occurs when the column manager menu item is clicked.

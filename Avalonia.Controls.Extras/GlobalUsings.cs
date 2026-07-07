@@ -26,4 +26,5 @@ global using Avalonia.Interactivity;
 global using Avalonia.Layout;
 global using Avalonia.Media;
 global using Avalonia.Controls.Primitives;
+global using Avalonia.Controls.Primitives.PopupPositioning;
 global using Avalonia.VisualTree;

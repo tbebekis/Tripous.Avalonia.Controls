@@ -42,6 +42,7 @@ Current implemented v1 feature map for `GroupGrid`.
   - `GroupGridCheckBoxColumn`
   - `GroupGridLookupColumn`
 - Column width and minimum width.
+- Public best-fit column sizing APIs for one column, one column by name, or all visible value columns.
 - Column visibility.
 - Grid-level `AreIdColumnsVisible` policy for columns named `Id` or ending with `Id`, case-insensitively.
 - Grid-level by-name APIs for column visibility and read-only state.
@@ -57,6 +58,7 @@ Current implemented v1 feature map for `GroupGrid`.
 
 - Toolbar band.
 - Group panel.
+- Configurable empty group panel prompt through `EmptyGroupPanelText`.
 - Column header band.
 - Filter row band.
 - Virtual body viewport.
@@ -117,6 +119,7 @@ Current implemented v1 feature map for `GroupGrid`.
 ### Interaction
 
 - Single current cell.
+- Public current-row API with `CurrentRowIndex`, `CurrentRow`, and `CurrentRowChanged`.
 - Single selected cell/row.
 - Keyboard navigation.
 - Mouse selection.
@@ -132,9 +135,13 @@ Current implemented v1 feature map for `GroupGrid`.
 - `GroupGridSettings` includes settings name, band visibility, default toolbar button visibility, sorting, and per-column order, width, visibility, grouping, filter, and summary settings.
 - `CreateSettings()` and `ApplySettings()` provide in-memory layout snapshot and restore.
 - `SaveSettings()` and `LoadSettings()` persist layout settings as JSON through a caller-provided full file path.
+- Column header context menu can save and load settings through Avalonia file pickers.
+- `IsSettingsMenuItemsVisible` controls the save/load settings context menu items.
+- `SettingsSuggestedFileName` controls the default save-settings picker file name.
 - Default column manager tabs cover visible/hidden columns, grouping, filters, and summaries.
 - Vertical and horizontal scroll thumb dragging.
 - Scrollbar track page scrolling.
+- Drop-down editor geometry diagnostics through `LastEditorRect` and `LastDropDownRect`.
 - Checkbox/boolean cell toggle by mouse click and `Space`.
 
 ### Toolbar
@@ -202,8 +209,12 @@ Current implemented v1 feature map for `GroupGrid`.
 - Lookup in-place editor with custom scrollable drop-down list.
 - Boolean cells toggle directly by mouse click or `Space`.
 - Custom in-place editors can be supplied through the grid-level `CreateInplaceEditor` event.
+- Custom drop-down editors can derive from `GroupGridDropDownInplaceEditorBase`.
+- Drop-down editors can use `IGroupGridDropDownEditorHost` to close, cancel, restore focus, or commit selected values without depending on `GroupGrid` internals.
+- Drop-down editors support inline, popup, and auto popup placement through `DropDownPlacementMode`.
 - Date normalization can be customized through the grid-level `DateNormalize` event.
 - Inline editing uses `Enter` and `Tab` to commit and `Escape` to cancel.
+- Control-level edit lifecycle events are available for validation, value mutation, commit handling, and cancel handling.
 - Engine validation and commit events:
   - `BeginningEdit`
   - `CellValidating`

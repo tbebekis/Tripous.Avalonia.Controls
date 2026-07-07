@@ -94,6 +94,8 @@ Grid.ToggleSort(AmountColumn);
 Grid.SetColumnFilter(AmountColumn, ">=100");
 ```
 
+When no columns are grouped, the group panel displays a small prompt. Customize or clear it with `EmptyGroupPanelText`.
+
 ### Hide Id columns
 
 ```csharp
@@ -112,6 +114,16 @@ Grid.SetColumnReadOnly("Amount", true);
 Grid.SetColumnsReadOnly(new[] { "Quantity", "Amount" }, false);
 ```
 
+### Best-fit columns
+
+```csharp
+Grid.BestFitColumn("Customer");
+Grid.BestFitColumn(AmountColumn);
+Grid.BestFitColumns();
+```
+
+Best-fit sizing always includes the column header. It measures display text from the current projected visible data rows, respects `MinWidth`, and uses a default row sample limit of 2500 rows per column. Pass `0` or a negative value to measure all visible data rows.
+
 ### Scroll and select
 
 ```csharp
@@ -121,6 +133,18 @@ Grid.SelectCurrentCell();
 ```
 
 `ScrollToRow()` uses adapter row indexes. It returns `false` when the row is not present in the current projection, for example because it is filtered out.
+
+### Read the current row
+
+```csharp
+Grid.CurrentRowChanged += (Sender, Args) =>
+{
+    object Row = Grid.CurrentRow;
+    int RowIndex = Grid.CurrentRowIndex;
+};
+```
+
+Use the control-level current-row API when application code needs the active data row. Consumers should not reach into `Grid.Engine` for ordinary current-row state.
 
 ### Save and load layout
 
@@ -135,6 +159,8 @@ Grid.LoadSettings(FilePath);
 ```
 
 Settings JSON is formatted and stores layout state such as widths, visibility, grouping, filters, sorting, summaries, and band visibility.
+
+The column header context menu also exposes `Save Settings...` and `Load Settings...` items that use Avalonia file pickers. Set `IsSettingsMenuItemsVisible` to `false` when an application wants to provide its own settings commands. Set `SettingsSuggestedFileName` to customize the suggested file name used by the built-in save settings picker.
 
 ### Export
 
@@ -168,12 +194,24 @@ Grid.ToolButtonClicked += (Sender, Args) =>
 ### Validate edits
 
 ```csharp
-Grid.Engine.CellValidating += (Sender, Args) =>
+Grid.CellValidating += (Sender, Args) =>
 {
     if (Args.Cell.Column.Name == "Amount" && Args.Value is decimal Value && Value < 0)
         Args.Cancel = true;
 };
 ```
+
+### React after a cell value is committed
+
+```csharp
+Grid.CellValueCommitted += (Sender, Args) =>
+{
+    if (Args.Cell.Column.Name == "CustomerId")
+        ApplyLookupSnapshots(Grid.CurrentRow, Args.Value);
+};
+```
+
+The control exposes the edit lifecycle events directly: `BeginningEdit`, `CellValidating`, `CellValueCommitting`, `CellValueCommitted`, and `EditCanceled`. Handlers receive the same mutable event arguments used by the engine, so validation cancellation and value changes affect the actual commit.
 
 ### Provide a custom editor
 
@@ -184,6 +222,30 @@ Grid.CreateInplaceEditor += (Sender, Args) =>
         Args.Editor = new MyCodeEditor();
 };
 ```
+
+### Provide a custom drop-down editor
+
+```csharp
+public class MyLookupEditor : GroupGridDropDownInplaceEditorBase
+{
+    public override Control CreateDropDownControl()
+    {
+        return ResultGrid;
+    }
+
+    void ResultGrid_DoubleTapped(object Sender, TappedEventArgs Args)
+    {
+        DropDownHost.CommitDropDownValue(CurrentResult);
+    }
+
+    protected override object GetDropDownSelectedValue()
+    {
+        return CurrentResult;
+    }
+}
+```
+
+`IGroupGridDropDownEditorHost` lets a custom drop-down editor ask the owning grid to close the drop-down, cancel it, restore focus, or commit a selected value without depending on `GroupGrid` internals.
 
 ## Data Access
 
