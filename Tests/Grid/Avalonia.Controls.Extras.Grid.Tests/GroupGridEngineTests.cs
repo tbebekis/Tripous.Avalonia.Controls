@@ -527,4 +527,70 @@ public class GroupGridEngineTests
         Assert.False(Engine.UngroupColumn(ExternalColumn));
         Assert.False(Engine.SetColumnVisible(ExternalColumn, false));
     }
+    /// <summary>
+    /// Verifies grid-level read-only blocks editing and value updates.
+    /// </summary>
+    [Fact]
+    public void IsReadOnly_WhenTrue_BlocksEditingAndSetValue()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGridEngine Engine = CreateEngine(Rows);
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        Engine.IsReadOnly = true;
+
+        Engine.SetValue(0, NameColumn, "Changed");
+
+        Assert.False(Engine.CanSetValue(0, NameColumn));
+        Assert.False(Engine.BeginEdit(0, NameColumn));
+        Assert.Equal("Alpha", Rows[0].Name);
+    }
+    /// <summary>
+    /// Verifies column read-only blocks editing and value updates.
+    /// </summary>
+    [Fact]
+    public void ColumnIsReadOnly_WhenTrue_BlocksEditingAndSetValue()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGridEngine Engine = CreateEngine(Rows);
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        NameColumn.IsReadOnly = true;
+
+        Engine.SetValue(0, NameColumn, "Changed");
+
+        Assert.False(Engine.CanSetValue(0, NameColumn));
+        Assert.False(Engine.BeginEdit(0, NameColumn));
+        Assert.Equal("Alpha", Rows[0].Name);
+    }
+    /// <summary>
+    /// Verifies navigation skips read-only columns when moving to the next editable cell.
+    /// </summary>
+    [Fact]
+    public void MoveCurrentToNextEditableCell_WithReadOnlyColumn_SkipsReadOnlyColumn()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+        GroupGridColumn CategoryColumn = Column(Engine, nameof(GridTestRow.Category));
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        NameColumn.IsReadOnly = true;
+        Assert.True(Engine.SetCurrentCell(0, CategoryColumn));
+
+        Assert.True(Engine.MoveCurrentToNextEditableCell(true));
+
+        Assert.Equal(0, Engine.CurrentRowIndex);
+        Assert.Same(Column(Engine, nameof(GridTestRow.Quantity)), Engine.CurrentColumn);
+    }
+    /// <summary>
+    /// Verifies next editable navigation can move backward.
+    /// </summary>
+    [Fact]
+    public void MoveCurrentToNextEditableCell_Backward_MovesToPreviousEditableCell()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+        GroupGridColumn AmountColumn = Column(Engine, nameof(GridTestRow.Amount));
+        Assert.True(Engine.SetCurrentCell(1, AmountColumn));
+
+        Assert.True(Engine.MoveCurrentToNextEditableCell(false));
+
+        Assert.Equal(1, Engine.CurrentRowIndex);
+        Assert.Same(Column(Engine, nameof(GridTestRow.Quantity)), Engine.CurrentColumn);
+    }
 }
