@@ -593,4 +593,67 @@ public class GroupGridEngineTests
         Assert.Equal(1, Engine.CurrentRowIndex);
         Assert.Same(Column(Engine, nameof(GridTestRow.Quantity)), Engine.CurrentColumn);
     }
+    /// <summary>
+    /// Verifies clearing one column filter leaves other filters active.
+    /// </summary>
+    [Fact]
+    public void ClearColumnFilter_WithMultipleFilters_ClearsOnlyOneFilter()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        GroupGridColumn QuantityColumn = Column(Engine, nameof(GridTestRow.Quantity));
+        Assert.True(Engine.SetColumnFilter(NameColumn, "ta"));
+        Assert.True(Engine.SetColumnFilter(QuantityColumn, ">=5"));
+
+        Assert.True(Engine.ClearColumnFilter(NameColumn));
+
+        Assert.Equal(string.Empty, Engine.GetColumnFilter(NameColumn));
+        Assert.Equal(">=5", Engine.GetColumnFilter(QuantityColumn));
+        Assert.Equal(new[] { 1, 3 }, VisibleDataRowIndexes(Engine));
+    }
+    /// <summary>
+    /// Verifies invalid comparison filter values match no rows.
+    /// </summary>
+    [Fact]
+    public void SetColumnFilter_WithInvalidComparisonValue_MatchesNoRows()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+        GroupGridColumn QuantityColumn = Column(Engine, nameof(GridTestRow.Quantity));
+
+        Assert.True(Engine.SetColumnFilter(QuantityColumn, ">abc"));
+
+        Assert.Empty(VisibleDataRowIndexes(Engine));
+    }
+    /// <summary>
+    /// Verifies sort toggling cycles back to no sorting.
+    /// </summary>
+    [Fact]
+    public void ToggleSort_ThirdToggle_ClearsSorting()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+        GroupGridColumn QuantityColumn = Column(Engine, nameof(GridTestRow.Quantity));
+
+        Assert.True(Engine.ToggleSort(QuantityColumn));
+        Assert.True(Engine.ToggleSort(QuantityColumn));
+        Assert.True(Engine.ToggleSort(QuantityColumn));
+
+        Assert.Null(Engine.SortColumn);
+        Assert.Equal(GroupGridSortDirection.None, Engine.SortDirection);
+        Assert.Equal(new[] { 0, 1, 2, 3 }, VisibleDataRowIndexes(Engine));
+    }
+    /// <summary>
+    /// Verifies sorting keeps null values first in ascending order.
+    /// </summary>
+    [Fact]
+    public void ToggleSort_WithNullValues_SortsNullsFirstAscending()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        Rows[2].Name = null;
+        GroupGridEngine Engine = CreateEngine(Rows);
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+
+        Assert.True(Engine.ToggleSort(NameColumn));
+
+        Assert.Equal(2, VisibleDataRowIndexes(Engine).First());
+    }
 }
