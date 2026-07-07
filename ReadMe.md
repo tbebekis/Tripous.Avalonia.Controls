@@ -121,6 +121,8 @@ Current implemented feature map for `GroupGrid`.
 - `GroupGridSettings` includes settings name, band visibility, default toolbar button visibility, sorting, and per-column order, width, visibility, grouping, filter, and summary settings.
 - `CreateSettings()` and `ApplySettings()` provide in-memory layout snapshot and restore.
 - `SaveSettings()` and `LoadSettings()` persist layout settings as JSON through a caller-provided full file path.
+- Exporter registry with built-in CSV, JSON, and HTML exporters.
+- `CreateExportSnapshot()` and `SaveExport()` expose export data and file export.
 - Default column manager tabs cover visible/hidden columns, grouping, filters, and summaries.
 - Vertical and horizontal scroll thumb dragging.
 - Scrollbar track page scrolling.
@@ -203,17 +205,7 @@ Current implemented feature map for `GroupGrid`.
 
 ## GroupGrid Roadmap
 
-- Export:
-  - CSV
-  - JSON
-  - Excel/OpenXML
-  - clipboard copy
-  - printable/report-friendly output
-- Column manager follow-ups:
-  - column widths
-  - sorting
-- Typed filter descriptors if text filters are not enough.
+- V2 typed filter descriptors beyond the current text-based column filters.
 - Optional multi-column sorting.
-- Optional range and multi-selection.
 - Tests for engine projection, filtering, sorting, summaries, editing, adapters, and settings.
 - Demo scenarios for list sources, `DataTable` / `DataView`, grouping, filters, summaries, row commands, editors, and settings.

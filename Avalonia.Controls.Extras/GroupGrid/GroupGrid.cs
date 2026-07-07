@@ -1547,6 +1547,19 @@ public class GroupGrid: Control
         Result.Click += (Sender, Args) => Click?.Invoke();
         return Result;
     }
+    MenuItem CreateExportMenuItem()
+    {
+        List<GroupGridExporter> Exporters = GroupGridExporters.CreateExporters().ToList();
+        MenuItem Result = new()
+        {
+            Header = "Export",
+            IsEnabled = Exporters.Count > 0,
+        };
+        Result.ItemsSource = Exporters
+            .Select(Exporter => CreateMenuItem(Exporter.Name, true, () => ExportAsync(Exporter)))
+            .ToList();
+        return Result;
+    }
     string GetSortMenuHeader(GroupGridColumn Column)
     {
         if (!ReferenceEquals(fEngine.SortColumn, Column) || fEngine.SortDirection == GroupGridSortDirection.None)
@@ -1650,6 +1663,9 @@ public class GroupGrid: Control
             Items.Add(new Separator());
             Items.Add(CreateMenuItem("Column Manager...", true, RequestColumnManager));
         }
+
+        Items.Add(new Separator());
+        Items.Add(CreateExportMenuItem());
 
         Menu.ItemsSource = Items;
         Menu.Open(this);
@@ -1921,6 +1937,34 @@ public class GroupGrid: Control
             ApplySettings(Dialog.Settings);
 
         return Result;
+    }
+    async void ExportAsync(GroupGridExporter Exporter)
+    {
+        if (Exporter == null)
+            return;
+
+        TopLevel Owner = TopLevel.GetTopLevel(this);
+        if (Owner == null)
+            return;
+
+        string Extension = (Exporter.DefaultExtension ?? string.Empty).Trim().TrimStart('.');
+        string Pattern = string.IsNullOrWhiteSpace(Extension) ? "*.*" : "*." + Extension;
+        FilePickerFileType FileType = new(Exporter.Name)
+        {
+            Patterns = new[] { Pattern },
+        };
+        FilePickerSaveOptions Options = new()
+        {
+            Title = "Export",
+            SuggestedFileName = string.IsNullOrWhiteSpace(Extension) ? "GroupGrid" : "GroupGrid." + Extension,
+            DefaultExtension = Extension,
+            FileTypeChoices = new[] { FileType },
+        };
+        IStorageFile File = await Owner.StorageProvider.SaveFilePickerAsync(Options);
+        if (File == null || !File.Path.IsFile)
+            return;
+
+        SaveExport(Exporter, File.Path.LocalPath);
     }
 
     // ● drawing helpers
@@ -3141,6 +3185,63 @@ public class GroupGrid: Control
 
         ApplySettings(Settings);
         return true;
+    }
+
+    // ● export API
+    /// <summary>
+    /// Creates an export snapshot from the current visible grid projection.
+    /// </summary>
+    /// <returns>The export snapshot.</returns>
+    public GroupGridExportSnapshot CreateExportSnapshot()
+    {
+        List<GroupGridExportColumn> Columns = fEngine.GetVisibleValueColumns()
+            .Select(Column => new GroupGridExportColumn(Column))
+            .ToList();
+        Dictionary<GroupGridColumn, GroupGridExportColumn> ColumnMap = Columns.ToDictionary(Column => Column.Column);
+        List<GroupGridExportRow> Rows = new();
+
+        for (int Index = 0; Index < fEngine.VisibleNodeCount; Index++)
+        {
+            GroupGridRowInfo RowInfo = fEngine.GetVisibleRowInfo(Index);
+            string GroupText = RowInfo.IsGroup ? fEngine.GetGroupHeaderText(Index) : string.Empty;
+            List<GroupGridExportCell> Cells = new();
+
+            if (RowInfo.IsDataRow || RowInfo.IsGroupSummary)
+            {
+                foreach (GroupGridExportColumn Column in Columns)
+                {
+                    object Value = RowInfo.IsDataRow
+                        ? fEngine.GetValue(RowInfo.RowIndex, Column.Column)
+                        : fEngine.GetGroupSummary(Index, Column.Column).Value;
+                    string Text = fEngine.GetDisplayText(Index, Column.Column);
+                    Cells.Add(new GroupGridExportCell(ColumnMap[Column.Column], Value, Text));
+                }
+            }
+
+            Rows.Add(new GroupGridExportRow(RowInfo, GroupText, Cells));
+        }
+
+        List<GroupGridExportCell> TotalSummaryCells = Columns
+            .Select(Column =>
+            {
+                GroupGridSummaryValue Summary = fEngine.GetTotalSummary(Column.Column);
+                return new GroupGridExportCell(ColumnMap[Column.Column], Summary.Value, fEngine.GetTotalSummaryText(Column.Column));
+            })
+            .ToList();
+
+        return new GroupGridExportSnapshot(Columns, Rows, TotalSummaryCells);
+    }
+    /// <summary>
+    /// Exports the current grid using a specified exporter.
+    /// </summary>
+    /// <param name="Exporter">The exporter.</param>
+    /// <param name="FilePath">The full export file path.</param>
+    public void SaveExport(GroupGridExporter Exporter, string FilePath)
+    {
+        if (Exporter == null)
+            throw new ArgumentNullException(nameof(Exporter));
+
+        Exporter.Export(this, CreateExportSnapshot(), FilePath);
     }
     /// <summary>
     /// Applies a serializable settings object to the current grid layout.
