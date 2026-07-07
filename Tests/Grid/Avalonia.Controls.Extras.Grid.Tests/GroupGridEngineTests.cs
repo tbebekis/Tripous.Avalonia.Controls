@@ -469,4 +469,62 @@ public class GroupGridEngineTests
         Assert.True(Engine.GetVisibleRowInfo(0).IsExpanded);
         Assert.Equal(new[] { 0, 1, 2, 3 }, VisibleDataRowIndexes(Engine));
     }
+    /// <summary>
+    /// Verifies moving columns in the engine column collection.
+    /// </summary>
+    [Fact]
+    public void MoveColumn_WithValidColumn_ChangesColumnOrder()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+        GroupGridColumn AmountColumn = Column(Engine, nameof(GridTestRow.Amount));
+
+        Assert.True(Engine.MoveColumn(AmountColumn, 0));
+
+        Assert.Same(AmountColumn, Engine.Columns[0]);
+    }
+    /// <summary>
+    /// Verifies moving grouped columns.
+    /// </summary>
+    [Fact]
+    public void MoveGroupedColumn_WithValidColumn_ChangesGroupOrder()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+        GroupGridColumn CategoryColumn = Column(Engine, nameof(GridTestRow.Category));
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        Assert.True(Engine.GroupColumn(CategoryColumn));
+        Assert.True(Engine.GroupColumn(NameColumn));
+
+        Assert.True(Engine.MoveGroupedColumn(NameColumn, 0));
+
+        Assert.Same(NameColumn, Engine.GroupColumns[0]);
+        Assert.Same(CategoryColumn, Engine.GroupColumns[1]);
+    }
+    /// <summary>
+    /// Verifies that non-hideable columns remain visible.
+    /// </summary>
+    [Fact]
+    public void SetColumnVisible_WithNonHideableColumn_ReturnsFalse()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        NameColumn.CanUserHide = false;
+
+        Assert.False(Engine.SetColumnVisible(NameColumn, false));
+
+        Assert.True(NameColumn.IsVisible);
+    }
+    /// <summary>
+    /// Verifies invalid column operations return false.
+    /// </summary>
+    [Fact]
+    public void ColumnLayoutOperations_WithInvalidInputs_ReturnFalse()
+    {
+        GroupGridEngine Engine = CreateEngine(CreateRows());
+        GroupGridColumn ExternalColumn = new GroupGridTextColumn { Name = "External" };
+
+        Assert.False(Engine.MoveColumn(ExternalColumn, 0));
+        Assert.False(Engine.GroupColumn(ExternalColumn));
+        Assert.False(Engine.UngroupColumn(ExternalColumn));
+        Assert.False(Engine.SetColumnVisible(ExternalColumn, false));
+    }
 }
