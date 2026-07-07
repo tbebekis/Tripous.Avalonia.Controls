@@ -6,6 +6,7 @@ namespace Avalonia.Controls;
 public class GroupGrid: Control
 {
     // ● public fields
+    // ● theme brush properties
     /// <summary>
     /// Defines the <see cref="GridBackgroundBrush"/> property.
     /// </summary>
@@ -108,15 +109,20 @@ public class GroupGrid: Control
     public static readonly StyledProperty<IBrush> ResizeGuideBrushProperty = AvaloniaProperty.Register<GroupGrid, IBrush>(nameof(ResizeGuideBrush), CreateBrush(80, 120, 170));
 
     // ● private fields
+    // ● toolbar constants
     const string InsertToolButtonName = "Insert";
     const string DeleteToolButtonName = "Delete";
     const string EditToolButtonName = "Edit";
+
+    // ● core state
     readonly ObservableCollection<GroupGridToolButton> fToolButtons = new();
     GroupGridEngine fEngine;
     object fItemsSource;
     IDisposable fOwnedDataAdapter;
     int fFirstVisibleNodeIndex;
     bool fAutoGenerateColumns;
+
+    // ● interaction flags
     bool fIsVerticalScrollDragging;
     bool fIsHorizontalScrollDragging;
     bool fIsColumnResizing;
@@ -124,21 +130,31 @@ public class GroupGrid: Control
     bool fIsColumnDragActive;
     bool fIsDeleteConfirmationOpen;
     bool fIsColumnManagerOpen;
+
+    // ● band visibility
     bool fIsToolBarVisible = true;
     bool fIsFilterPanelVisible = true;
     bool fIsColumnHeadersVisible = true;
     bool fIsGroupPanelVisible = true;
     bool fIsTotalsSummaryVisible = true;
+
+    // ● toolbar state
     GroupGridToolButton fPointerOverToolButton;
+
+    // ● column interaction state
     bool fColumnDragFromGroupPanel;
     bool fIsColumnManagerMenuItemVisible = true;
     double fVerticalScrollDragOffset;
     double fHorizontalScrollDragOffset;
     double fHorizontalOffset;
+
+    // ● column resize state
     double fColumnResizeStartX;
     double fColumnResizeStartWidth;
     double fColumnResizeCurrentX;
     GroupGridColumn fColumnResizeColumn;
+
+    // ● column drag state
     double fColumnDragStartX;
     double fColumnDragCurrentX;
     double fColumnDragCurrentY;
@@ -147,6 +163,8 @@ public class GroupGrid: Control
     int fColumnDragGroupDropIndex = -1;
     int fColumnDragSourceGroupIndex = -1;
     GroupGridColumn fColumnDragColumn;
+
+    // ● editing state
     GroupGridColumn fFilterEditColumn;
     GroupGridInplaceEditorBase fActiveEditor;
     Border fActiveDropDownHost;
@@ -157,12 +175,15 @@ public class GroupGrid: Control
     string fCellEditText = string.Empty;
     bool fIsClosingEditor;
     bool fHasHorizontalScrollBar;
+
+    // ● theme state
     Pen fLinePen;
     Pen fCurrentPen;
     Pen fEditingPen;
     Pen fResizePen;
 
     // ● private methods
+    // ● theme helpers
     static IBrush CreateBrush(byte Red, byte Green, byte Blue)
     {
         return new SolidColorBrush(Color.FromRgb(Red, Green, Blue));
@@ -194,6 +215,8 @@ public class GroupGrid: Control
         fEditingPen = CreateEditingPen();
         fResizePen = CreateResizePen();
     }
+
+    // ● engine event handlers
     void Engine_Changed(object Sender, EventArgs Args)
     {
         if (fEngine != null && !fEngine.IsEditing)
@@ -269,6 +292,8 @@ public class GroupGrid: Control
         Engine.RowDeleted -= Engine_RowDeleted;
         Engine.EditRequested -= Engine_EditRequested;
     }
+
+    // ● toolbar helpers
     void ToolButtons_CollectionChanged(object Sender, NotifyCollectionChangedEventArgs Args)
     {
         if (Args.OldItems != null)
@@ -330,6 +355,8 @@ public class GroupGrid: Control
         if (Button != null)
             Button.IsVisible = Value;
     }
+
+    // ● viewport and layout helpers
     void UpdateViewport(Size Size)
     {
         if (fEngine == null)
@@ -572,6 +599,8 @@ public class GroupGrid: Control
     {
         return HasHorizontalScrollBar() ? fEngine.LayoutMetrics.HorizontalScrollBarHeight : 0;
     }
+
+    // ● scrollbar geometry helpers
     Rect GetVerticalScrollTrackRect()
     {
         if (!HasVerticalScrollBar())
@@ -643,6 +672,8 @@ public class GroupGrid: Control
         double Ratio = (X - TrackRect.X - fHorizontalScrollDragOffset) / Range;
         return SetHorizontalOffsetCore(Math.Clamp(Ratio, 0, 1) * MaxOffset);
     }
+
+    // ● column resize and drag helpers
     bool SetColumnWidth(GroupGridColumn Column, double Width)
     {
         if (Column == null)
@@ -807,6 +838,8 @@ public class GroupGrid: Control
         bool Moved = fEngine.MoveColumn(fColumnDragColumn, NewIndex);
         return Ungrouped || Moved;
     }
+
+    // ● data source helpers
     Type FindListItemType(object ItemsSource)
     {
         if (ItemsSource == null)
@@ -943,6 +976,8 @@ public class GroupGrid: Control
         fOwnedDataAdapter = Adapter as IDisposable;
         DataAdapter = Adapter;
     }
+
+    // ● cell state helpers
     bool IsCurrentCell(GroupGridRowInfo RowInfo, GroupGridColumn Column)
     {
         return RowInfo.IsDataRow && fEngine.CurrentCell == new GroupGridCell(RowInfo.RowIndex, Column);
@@ -1010,6 +1045,8 @@ public class GroupGrid: Control
         Rect CellRect = new(X, Y, Width, RowHeight);
         return CellRect.Intersect(ClipRect);
     }
+
+    // ● editor geometry helpers
     double GetDropDownHeight(Rect EditorRect)
     {
         if (fActiveEditor != null && fActiveEditor.DropDownHeight > 0)
@@ -1055,6 +1092,8 @@ public class GroupGrid: Control
                && !IsCheckBoxToggleColumn(Cell.Column)
                && fEngine.CanSetValue(Cell.RowIndex, Cell.Column);
     }
+
+    // ● cell editing helpers
     bool BeginCellEdit(bool ReplaceText, string Text)
     {
         GroupGridCell Cell = fEngine.CurrentCell;
@@ -1118,6 +1157,8 @@ public class GroupGrid: Control
         Editor.FocusEditor();
         Editor.SelectAll();
     }
+
+    // ● editor drop-down helpers
     void Editor_DropDownRequested(object Sender, EventArgs Args)
     {
         if (fActiveDropDownHost != null)
@@ -1286,6 +1327,8 @@ public class GroupGrid: Control
         }, DispatcherPriority.Background);
         Args.Handled = true;
     }
+
+    // ● editor factory helpers
     GroupGridInplaceEditorBase CreateCellEditor(GroupGridColumn Column)
     {
         GroupGridCreateInplaceEditorEventArgs Args = new(Column);
@@ -1407,6 +1450,8 @@ public class GroupGrid: Control
 
         return Value;
     }
+
+    // ● edit commit helpers
     bool CommitCellEdit()
     {
         if (!fEngine.IsEditing)
@@ -1476,6 +1521,8 @@ public class GroupGrid: Control
         InvalidateVisual();
         return true;
     }
+
+    // ● menu helpers
     MenuItem CreateMenuItem(string Header, bool IsEnabled, Action Click)
     {
         MenuItem Result = new()
@@ -1499,6 +1546,8 @@ public class GroupGrid: Control
     {
         return !string.IsNullOrEmpty(Text) && !Text.Any(Character => char.IsControl(Character));
     }
+
+    // ● filter edit helpers
     bool SetFilterEditColumn(GroupGridColumn Column)
     {
         if (ReferenceEquals(fFilterEditColumn, Column))
@@ -1555,6 +1604,8 @@ public class GroupGrid: Control
         CancelCellEdit();
         return fEngine.ClearColumnFilter(Column);
     }
+
+    // ● context menu helpers
     bool ShowColumnContextMenu(Point Point)
     {
         GroupGridHitTestResult Hit = HitTest(Point);
@@ -1643,6 +1694,8 @@ public class GroupGrid: Control
         fEngine.RebuildProjection();
         InvalidateVisual();
     }
+
+    // ● toolbar layout and command helpers
     List<(GroupGridToolButton Button, Rect Rect)> LayoutToolButtons(double Width)
     {
         List<(GroupGridToolButton Button, Rect Rect)> Result = new();
@@ -1763,6 +1816,8 @@ public class GroupGrid: Control
         if (fEngine.DeleteCurrentRow())
             ScrollCurrentCellIntoViewCore();
     }
+
+    // ● dialog helpers
     Task<bool> ShowDefaultDeleteConfirmationAsync()
     {
         Window Owner = TopLevel.GetTopLevel(this) as Window;
@@ -1853,6 +1908,8 @@ public class GroupGrid: Control
 
         return Result;
     }
+
+    // ● drawing helpers
     void DrawToolBar(DrawingContext Context, Rect Rect)
     {
         DrawBand(Context, Rect, ToolBarBrush);
@@ -2035,6 +2092,8 @@ public class GroupGrid: Control
 
         return X;
     }
+
+    // ● group and body drawing helpers
     void DrawGroupPanel(DrawingContext Context, double Y, double Height, double Width)
     {
         DrawBand(Context, new Rect(0, Y, Width, Height), GroupPanelBrush);
@@ -2265,6 +2324,8 @@ public class GroupGrid: Control
             }
         }
     }
+
+    // ● hit-test action helpers
     void HandleHitTest(GroupGridHitTestResult Hit)
     {
         if (Hit == null || fEngine == null)
@@ -2292,6 +2353,8 @@ public class GroupGrid: Control
                 BeginCellEdit(false, null);
         }
     }
+
+    // ● pointer handling helpers
     bool HandleVerticalScrollPointerPressed(PointerPressedEventArgs Args, Point Point)
     {
         if (!HasVerticalScrollBar())
@@ -2526,6 +2589,8 @@ public class GroupGrid: Control
         EngineY = VisibleY + EngineOffset;
         return true;
     }
+
+    // ● hit-test mapping helpers
     bool MapVisibleBandY(double VisibleY, double MetricHeight, double VisibleHeight, ref double VisibleTop, ref double EngineOffset, out double EngineY)
     {
         EngineY = VisibleY + EngineOffset;
@@ -2561,6 +2626,8 @@ public class GroupGrid: Control
 
         return fEngine.HitTest(X + fHorizontalOffset, EngineY);
     }
+
+    // ● keyboard helpers
     bool HandleKey(KeyEventArgs Args)
     {
         if (fEngine == null)
@@ -2636,6 +2703,7 @@ public class GroupGrid: Control
     }
 
     // ● protected methods
+    // ● theme change hooks
     /// <inheritdoc />
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs Args)
     {
@@ -2657,6 +2725,8 @@ public class GroupGrid: Control
                 TextEditor.Foreground = TextBrush;
         }
     }
+
+    // ● pointer overrides
     /// <inheritdoc />
     protected override void OnPointerPressed(PointerPressedEventArgs Args)
     {
@@ -2774,6 +2844,8 @@ public class GroupGrid: Control
         ToolTip.SetTip(this, null);
         InvalidateVisual();
     }
+
+    // ● keyboard and text input overrides
     /// <inheritdoc />
     protected override void OnKeyDown(KeyEventArgs Args)
     {
@@ -2817,6 +2889,8 @@ public class GroupGrid: Control
         if (ScrollViewport(Delta))
             Args.Handled = true;
     }
+
+    // ● layout overrides
     /// <inheritdoc />
     protected override Size ArrangeOverride(Size FinalSize)
     {
@@ -2900,6 +2974,7 @@ public class GroupGrid: Control
     }
 
     // ● public methods
+    // ● viewport API
     /// <summary>
     /// Sets the first visible node index in the virtual viewport.
     /// </summary>
@@ -2926,6 +3001,8 @@ public class GroupGrid: Control
     {
         return ScrollCurrentCellIntoViewCore();
     }
+
+    // ● column query API
     /// <summary>
     /// Returns the visible columns in display order.
     /// </summary>
@@ -2974,6 +3051,8 @@ public class GroupGrid: Control
     {
         return fEngine.GroupColumns.ToList();
     }
+
+    // ● settings API
     /// <summary>
     /// Creates a serializable settings object from the current grid layout.
     /// </summary>
@@ -3054,6 +3133,8 @@ public class GroupGrid: Control
         UpdateViewport(Bounds.Size);
         InvalidateVisual();
     }
+
+    // ● toolbar API
     /// <summary>
     /// Returns a toolbar button by name.
     /// </summary>
@@ -3145,6 +3226,8 @@ public class GroupGrid: Control
         GroupGridToolButton Button = new() { Name = Name, Text = Text, ToolTip = ToolTip };
         return InsertButtonAfter(ExistingButtonName, Button) ? Button : null;
     }
+
+    // ● column grouping and layout API
     /// <summary>
     /// Adds a column to the grouping list.
     /// </summary>
@@ -3199,6 +3282,8 @@ public class GroupGrid: Control
         CancelCellEdit();
         return fEngine.SetColumnVisible(Column, IsVisible);
     }
+
+    // ● sorting and filtering API
     /// <summary>
     /// Clears the active column sorting.
     /// </summary>
@@ -3257,6 +3342,8 @@ public class GroupGrid: Control
         CancelCellEdit();
         return fEngine.ClearFilters();
     }
+
+    // ● row command API
     /// <summary>
     /// Returns true when a new row can be inserted after the current row.
     /// </summary>
@@ -3304,6 +3391,8 @@ public class GroupGrid: Control
     {
         fEngine.RequestEdit();
     }
+
+    // ● group expansion API
     /// <summary>
     /// Sets the expanded state of a group node by visible-node index.
     /// </summary>
@@ -3325,6 +3414,8 @@ public class GroupGrid: Control
         CancelCellEdit();
         return fEngine.ToggleGroupExpanded(VisibleNodeIndex);
     }
+
+    // ● current cell and selection API
     /// <summary>
     /// Clears the current cell.
     /// </summary>
@@ -3376,6 +3467,8 @@ public class GroupGrid: Control
     {
         return fEngine.SelectCurrentCell();
     }
+
+    // ● editing API
     /// <summary>
     /// Begins editing the current cell.
     /// </summary>
@@ -3407,6 +3500,8 @@ public class GroupGrid: Control
     {
         return CancelCellEdit();
     }
+
+    // ● navigation API
     /// <summary>
     /// Moves the current cell by visible row and column deltas.
     /// </summary>
@@ -3420,6 +3515,8 @@ public class GroupGrid: Control
         ScrollCurrentCellIntoViewCore();
         return Result;
     }
+
+    // ● rendering API
     /// <inheritdoc />
     public override void Render(DrawingContext Context)
     {
@@ -3483,6 +3580,7 @@ public class GroupGrid: Control
     }
 
     // ● properties
+    // ● core properties
     /// <summary>
     /// Gets or sets the group grid engine rendered by this control.
     /// </summary>
@@ -3515,6 +3613,8 @@ public class GroupGrid: Control
     /// Gets the grouped columns in grouping order.
     /// </summary>
     public IReadOnlyList<GroupGridColumn> GroupColumns => fEngine.GroupColumns;
+
+    // ● data properties
     /// <summary>
     /// Gets or sets the data adapter.
     /// </summary>
@@ -3577,6 +3677,8 @@ public class GroupGrid: Control
     /// Gets the layout metrics used by the grid.
     /// </summary>
     public GroupGridLayoutMetrics LayoutMetrics => fEngine.LayoutMetrics;
+
+    // ● theme properties
     /// <summary>
     /// Gets or sets the grid body background brush.
     /// </summary>
@@ -3677,6 +3779,8 @@ public class GroupGrid: Control
     /// Gets or sets the resize and drop guide brush.
     /// </summary>
     public IBrush ResizeGuideBrush { get => GetValue(ResizeGuideBrushProperty); set => SetValue(ResizeGuideBrushProperty, value); }
+
+    // ● visibility properties
     /// <summary>
     /// Gets or sets a value indicating whether the toolbar band is visible.
     /// </summary>
@@ -3741,6 +3845,8 @@ public class GroupGrid: Control
         get => GetDefaultToolButtonVisible(EditToolButtonName);
         set => SetDefaultToolButtonVisible(EditToolButtonName, value);
     }
+
+    // ● state properties
     /// <summary>
     /// Gets the current cell.
     /// </summary>
@@ -3781,6 +3887,8 @@ public class GroupGrid: Control
     /// Gets a value indicating whether the grid is editing a cell.
     /// </summary>
     public bool IsEditing => fEngine.IsEditing;
+
+    // ● viewport state properties
     /// <summary>
     /// Gets the viewport window into the logical visible-node list.
     /// </summary>
@@ -3816,6 +3924,7 @@ public class GroupGrid: Control
     }
 
     // ● events
+    // ● command events
     /// <summary>
     /// Occurs when the column manager menu item is clicked.
     /// </summary>
@@ -3824,6 +3933,8 @@ public class GroupGrid: Control
     /// Occurs when a custom toolbar button is clicked.
     /// </summary>
     public event EventHandler<GroupGridToolButtonEventArgs> ToolButtonClicked;
+
+    // ● row operation events
     /// <summary>
     /// Occurs before a row is inserted.
     /// </summary>
@@ -3844,6 +3955,8 @@ public class GroupGrid: Control
     /// Occurs when the edit toolbar command is requested.
     /// </summary>
     public event EventHandler EditRequested;
+
+    // ● editing extension events
     /// <summary>
     /// Occurs when the grid needs an in-place editor for a cell.
     /// </summary>

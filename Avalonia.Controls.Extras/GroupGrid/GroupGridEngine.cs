@@ -6,20 +6,30 @@ namespace Avalonia.Controls;
 public class GroupGridEngine
 {
     // ● private fields
+    // ● projection state
     readonly GroupGridNodeProjection fProjection = new();
     readonly ObservableCollection<GroupGridColumn> fGroupColumns = new();
     readonly Dictionary<GroupGridColumn, string> fColumnFilters = new();
+
+    // ● data state
     IGroupGridDataAdapter fDataAdapter;
+
+    // ● cell state
     GroupGridCell fCurrentCell = GroupGridCell.Empty;
     GroupGridCell fSelectedCell = GroupGridCell.Empty;
     GroupGridCell fEditingCell = GroupGridCell.Empty;
+
+    // ● viewport state
     GroupGridViewport fViewport = GroupGridViewport.Empty;
     double fBodyHeight;
+
+    // ● operation state
     bool fIsReadOnly;
     GroupGridColumn fSortColumn;
     GroupGridSortDirection fSortDirection;
 
     // ● private methods
+    // ● source and collection event handlers
     void Columns_CollectionChanged(object Sender, NotifyCollectionChangedEventArgs Args)
     {
         if (Args.Action == NotifyCollectionChangedAction.Reset)
@@ -106,6 +116,8 @@ public class GroupGridEngine
         CoerceEditingCell();
         DataAdapterChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    // ● cell validation helpers
     void CoerceCurrentCell()
     {
         if (fCurrentCell.IsEmpty)
@@ -148,6 +160,8 @@ public class GroupGridEngine
                && !Cell.Column.IsReadOnly
                && CanSetValue(Cell.RowIndex, Cell.Column);
     }
+
+    // ● column list helpers
     List<GroupGridColumn> GetVisibleColumnList()
     {
         return Columns.Where(Column => Column.IsVisible).ToList();
@@ -180,6 +194,8 @@ public class GroupGridEngine
 
         return null;
     }
+
+    // ● hit-test result helpers
     GroupGridHitTestResult CreateBandHitTestResult(double X, double Y, GroupGridBand Band, GroupGridHitTestKind Kind)
     {
         return new GroupGridHitTestResult
@@ -254,6 +270,8 @@ public class GroupGridEngine
             ColumnIndex = ColumnIndex,
         };
     }
+
+    // ● navigation helpers
     List<GroupGridNode> GetVisibleDataRowNodes()
     {
         return fProjection.VisibleNodes
@@ -280,6 +298,8 @@ public class GroupGridEngine
     {
         return RowNode != null && Column != null && SetCurrentCell(RowNode.RowIndex, Column);
     }
+
+    // ● projection dependency helpers
     bool IsGroupedColumnName(string ColumnName)
     {
         if (string.IsNullOrWhiteSpace(ColumnName))
@@ -308,6 +328,8 @@ public class GroupGridEngine
 
         return false;
     }
+
+    // ● filter helpers
     bool ContainsFilterText(object Value, GroupGridColumn Column, string FilterText)
     {
         string Text = Column.FormatValue(Value);
@@ -425,6 +447,8 @@ public class GroupGridEngine
 
         return true;
     }
+
+    // ● sort helpers
     int CompareValues(object Left, object Right)
     {
         if (Left == DBNull.Value)
@@ -450,6 +474,8 @@ public class GroupGridEngine
 
         return Result == 0 ? LeftRowIndex.CompareTo(RightRowIndex) : Result;
     }
+
+    // ● projection helpers
     IReadOnlyList<int> GetProjectionRowIndexes()
     {
         if (fDataAdapter == null)
@@ -480,6 +506,8 @@ public class GroupGridEngine
 
         return new GroupGridRowInfo(Kind, VisibleNodeIndex, Node.RowIndex, Node.Level, Node.Column, Node.Key, Node.Row, Node.IsExpanded);
     }
+
+    // ● summary helpers
     IEnumerable<GroupGridNode> EnumerateDataRows(GroupGridNode Node)
     {
         if (Node == null)
@@ -645,6 +673,7 @@ public class GroupGridEngine
     }
 
     // ● public methods
+    // ● projection API
     /// <summary>
     /// Rebuilds the root-node and visible-node projection from the current data adapter.
     /// </summary>
@@ -655,6 +684,8 @@ public class GroupGridEngine
         VisibleNodesChanged?.Invoke(this, EventArgs.Empty);
         SummariesChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    // ● current cell and selection API
     /// <summary>
     /// Clears the current cell.
     /// </summary>
@@ -752,6 +783,8 @@ public class GroupGridEngine
     {
         return !fSelectedCell.IsEmpty && fSelectedCell.RowIndex == RowIndex;
     }
+
+    // ● editing API
     /// <summary>
     /// Begins editing a cell.
     /// </summary>
@@ -835,6 +868,8 @@ public class GroupGridEngine
         EditCanceled?.Invoke(this, new GroupGridCellEditEventArgs(Cell, Value));
         return true;
     }
+
+    // ● column query API
     /// <summary>
     /// Returns the visible columns in display order.
     /// </summary>
@@ -883,6 +918,8 @@ public class GroupGridEngine
     {
         return Column != null && fGroupColumns.Contains(Column);
     }
+
+    // ● column grouping and layout API
     /// <summary>
     /// Adds a column to the grouping list.
     /// </summary>
@@ -975,6 +1012,8 @@ public class GroupGridEngine
 
         return true;
     }
+
+    // ● filtering API
     /// <summary>
     /// Returns the text filter applied to a column.
     /// </summary>
@@ -1044,6 +1083,8 @@ public class GroupGridEngine
         FiltersChanged?.Invoke(this, EventArgs.Empty);
         return true;
     }
+
+    // ● sorting API
     /// <summary>
     /// Clears the active column sorting.
     /// </summary>
@@ -1092,6 +1133,8 @@ public class GroupGridEngine
         SortingChanged?.Invoke(this, EventArgs.Empty);
         return true;
     }
+
+    // ● row projection query API
     /// <summary>
     /// Returns the visible-node index of a specified adapter row index.
     /// </summary>
@@ -1110,6 +1153,8 @@ public class GroupGridEngine
     {
         return CreateRowInfo(fProjection.NodeByVisibleIndex(VisibleNodeIndex), VisibleNodeIndex);
     }
+
+    // ● navigation API
     /// <summary>
     /// Moves the current cell horizontally by a visible column delta.
     /// </summary>
@@ -1281,6 +1326,8 @@ public class GroupGridEngine
 
         return false;
     }
+
+    // ● group expansion API
     /// <summary>
     /// Sets the expanded state of a group node.
     /// </summary>
@@ -1323,6 +1370,8 @@ public class GroupGridEngine
         GroupGridNode Node = fProjection.NodeByVisibleIndex(VisibleNodeIndex);
         return Node != null && Node.IsGroup && SetGroupExpanded(Node, !Node.IsExpanded);
     }
+
+    // ● summary and display API
     /// <summary>
     /// Returns a group summary value by visible-node index and column.
     /// </summary>
@@ -1404,6 +1453,8 @@ public class GroupGridEngine
             ? string.Empty
             : Column.FormatSummaryValue(GetTotalSummary(Column));
     }
+
+    // ● hit-test API
     /// <summary>
     /// Returns hit-test information for a point in local grid coordinates.
     /// </summary>
@@ -1451,6 +1502,8 @@ public class GroupGridEngine
 
         return GroupGridHitTestResult.Empty;
     }
+
+    // ● data access API
     /// <summary>
     /// Returns the source row at a visible node index.
     /// </summary>
@@ -1492,6 +1545,8 @@ public class GroupGridEngine
     {
         return !fIsReadOnly && fDataAdapter != null && fDataAdapter.CanSetValue(RowIndex, Column);
     }
+
+    // ● row command API
     /// <summary>
     /// Returns true when a new row can be inserted after the current row.
     /// </summary>
@@ -1569,6 +1624,8 @@ public class GroupGridEngine
     {
         EditRequested?.Invoke(this, EventArgs.Empty);
     }
+
+    // ● viewport API
     /// <summary>
     /// Sets the viewport window into the logical visible-node list.
     /// </summary>
@@ -1604,6 +1661,7 @@ public class GroupGridEngine
     }
 
     // ● properties
+    // ● data and column properties
     /// <summary>
     /// Gets the grid columns.
     /// </summary>
@@ -1635,6 +1693,8 @@ public class GroupGridEngine
             CoerceEditingCell();
         }
     }
+
+    // ● current, selection, and editing properties
     /// <summary>
     /// Gets the current cell.
     /// </summary>
@@ -1675,6 +1735,8 @@ public class GroupGridEngine
     /// Gets the selected column, or null when there is no selected cell.
     /// </summary>
     public GroupGridColumn SelectedColumn => fSelectedCell.Column;
+
+    // ● projection, sorting, and filtering properties
     /// <summary>
     /// Gets the number of visible projected nodes.
     /// </summary>
@@ -1699,6 +1761,8 @@ public class GroupGridEngine
     /// Gets a value indicating whether any column filter is active.
     /// </summary>
     public bool HasFilters => fColumnFilters.Count > 0;
+
+    // ● viewport and layout properties
     /// <summary>
     /// Gets the viewport window into the logical visible-node list.
     /// </summary>
@@ -1721,6 +1785,7 @@ public class GroupGridEngine
     internal GroupGridNodeProjection Projection => fProjection;
 
     // ● events
+    // ● data and column events
     /// <summary>
     /// Occurs when the data adapter changes.
     /// </summary>
@@ -1742,6 +1807,8 @@ public class GroupGridEngine
     /// This is the full row projection after grouping or expansion rules, not the viewport subset currently rendered on screen.
     /// </summary>
     public event EventHandler VisibleNodesChanged;
+
+    // ● current, selection, and editing events
     /// <summary>
     /// Occurs when the current cell changes.
     /// </summary>
@@ -1778,6 +1845,8 @@ public class GroupGridEngine
     /// Occurs when editing is canceled.
     /// </summary>
     public event EventHandler<GroupGridCellEditEventArgs> EditCanceled;
+
+    // ● viewport, summary, sort, and filter events
     /// <summary>
     /// Occurs when the viewport window into the logical visible-node list changes.
     /// </summary>
@@ -1794,6 +1863,8 @@ public class GroupGridEngine
     /// Occurs when column filters change.
     /// </summary>
     public event EventHandler FiltersChanged;
+
+    // ● row command events
     /// <summary>
     /// Occurs before a row is inserted.
     /// </summary>
@@ -1810,6 +1881,8 @@ public class GroupGridEngine
     /// Occurs after a row is deleted.
     /// </summary>
     public event EventHandler<GroupGridRowOperationEventArgs> RowDeleted;
+
+    // ● command events
     /// <summary>
     /// Occurs when edit is requested by a toolbar command.
     /// </summary>
