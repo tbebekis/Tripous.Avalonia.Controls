@@ -8,9 +8,9 @@ The first control is `GroupGrid`, a general-purpose grid for data-entry and busi
 
 ## Documentation
 
-- [GroupGrid Concepts](./GroupGrid%20Concepts.md)
-- [Designing a Business Grid](1.%20Designing%20a%20Business%20Grid.md)
-- [Building a Business Grid Runtime](./2.%20Building%20a%20Business%20Grid%20runtime.md)
+- [GroupGrid Concepts](GroupGrid-Concepts.md)
+- [Designing a Business Grid](1.Designing-a-Business-Grid.md)
+- [Building a Business Grid Runtime](2.Building-a-Business-Grid-runtime.md)
 
 ## GroupGrid Features
 
@@ -65,6 +65,7 @@ Current implemented v1 feature map for `GroupGrid`.
 - Horizontal scrollbar.
 - Visibility properties for toolbar, group panel, column headers, filter panel, and totals summary bands.
 - Public vertical viewport and horizontal offset setters.
+- `ScrollToRow()` support for adapter rows present in the current projection.
 - Current-cell scroll-into-view support.
 
 ### Theming
@@ -184,7 +185,7 @@ Current implemented v1 feature map for `GroupGrid`.
 - Column header context menu includes an `Export` submenu generated from the exporter registry.
 - CSV export writes visible data rows with escaped cell text.
 - JSON export writes formatted JSON with column metadata and data row values.
-- HTML export writes a standalone HTML table.
+- HTML export writes a standalone HTML table with projected group rows, group summaries, and total summaries.
 
 ### Editing
 
@@ -224,12 +225,17 @@ Current implemented v1 feature map for `GroupGrid`.
 
 ## GroupGrid V1 Status
 
-`GroupGrid` v1 functionality is complete. The next work is tests and demos.
+`GroupGrid` v1 functionality is complete.
 
-## Next Work
+The repository includes:
 
-- Tests for engine projection, filtering, sorting, summaries, editing, adapters, settings, and exporters.
-- Demo scenarios for list sources, `DataTable` / `DataView`, grouping, filters, summaries, row commands, editors, settings, and export.
+- Unit tests for engine projection, filtering, sorting, grouping, summaries, editing, adapters, settings, exporters, and public control APIs.
+- A `Demo00.GroupGrid` application covering list sources, `DataTable` / `DataView`, grouping, filters, summaries, editors, settings, export, and public API helpers.
+
+## Hardening TODO
+
+- Review in-place editor drop-down clipping near the bottom edge of the grid. Consider flip-up placement or moving only the drop-down host to a `Popup` / overlay layer.
+- Consider Avalonia headless tests for visual editing lifecycle, editor positioning, and drop-down positioning.
 
 ## V2 Roadmap
 
