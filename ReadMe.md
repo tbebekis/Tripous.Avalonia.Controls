@@ -6,9 +6,9 @@ The first control is `GroupGrid`, a general-purpose grid for data-entry and busi
 
 ## Documentation
 
-- [GroupGrid Concepts](GroupGrid Concepts.md)
-- [Designing a Business Grid](1. Designing a Business Grid.md)
-- [Building a Business Grid Runtime](2. Building a Business Grid runtime.md)
+- [GroupGrid Concepts](./GroupGrid%20Concepts.md)
+- [Designing a Business Grid](1.%20Designing%20a%20Business%20Grid.md)
+- [Building a Business Grid Runtime](./2.%20Building%20a%20Business%20Grid%20runtime.md)
 
 ## GroupGrid Features
 
