@@ -8,6 +8,23 @@ namespace Avalonia.Controls.Extras.Grid.Tests;
 /// </summary>
 public class GroupGridControlTests
 {
+    // ● private types
+    class RowWithIds
+    {
+        /// <summary>
+        /// Gets or sets the row id.
+        /// </summary>
+        public int Id { get; set; }
+        /// <summary>
+        /// Gets or sets the customer id.
+        /// </summary>
+        public int CustomerId { get; set; }
+        /// <summary>
+        /// Gets or sets the row name.
+        /// </summary>
+        public string Name { get; set; }
+    }
+
     // ● private methods
     ObservableCollection<GridTestRow> CreateRows()
     {
@@ -210,5 +227,71 @@ public class GroupGridControlTests
         Assert.True(Grid.SetColumnsReadOnly(new[] { nameof(GridTestRow.Name), nameof(GridTestRow.Quantity) }, false));
         Assert.False(Column(Grid, nameof(GridTestRow.Name)).IsReadOnly);
         Assert.False(Column(Grid, nameof(GridTestRow.Quantity)).IsReadOnly);
+    }
+    /// <summary>
+    /// Verifies automatic columns and adapter creation for list item sources.
+    /// </summary>
+    [Fact]
+    public void ItemsSource_WithAutoGenerateColumnsAndList_GeneratesColumnsAndAdapter()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGrid Grid = new()
+        {
+            AutoGenerateColumns = true,
+            ItemsSource = Rows,
+        };
+
+        Assert.IsType<GroupGridListDataAdapter<GridTestRow>>(Grid.DataAdapter);
+        Assert.Contains(Grid.Columns, Column => Column.Name == nameof(GridTestRow.Category) && Column is GroupGridTextColumn);
+        Assert.Contains(Grid.Columns, Column => Column.Name == nameof(GridTestRow.Quantity) && Column is GroupGridNumberColumn);
+        Assert.Equal("Alpha", Grid.DataAdapter.GetValue(0, Column(Grid, nameof(GridTestRow.Name))));
+    }
+    /// <summary>
+    /// Verifies automatic columns and adapter creation for data table item sources.
+    /// </summary>
+    [Fact]
+    public void ItemsSource_WithAutoGenerateColumnsAndDataTable_GeneratesColumnsAndAdapter()
+    {
+        DataTable Table = new();
+        DataColumn NameColumn = Table.Columns.Add(nameof(GridTestRow.Name), typeof(string));
+        DataColumn QuantityColumn = Table.Columns.Add(nameof(GridTestRow.Quantity), typeof(int));
+        QuantityColumn.ReadOnly = true;
+        NameColumn.Caption = "Customer Name";
+        Table.Rows.Add("Alpha", 2);
+        GroupGrid Grid = new()
+        {
+            AutoGenerateColumns = true,
+            ItemsSource = Table,
+        };
+
+        GroupGridColumn GeneratedNameColumn = Column(Grid, nameof(GridTestRow.Name));
+        GroupGridColumn GeneratedQuantityColumn = Column(Grid, nameof(GridTestRow.Quantity));
+        Assert.IsType<GroupGridDataViewDataAdapter>(Grid.DataAdapter);
+        Assert.IsType<GroupGridTextColumn>(GeneratedNameColumn);
+        Assert.IsType<GroupGridNumberColumn>(GeneratedQuantityColumn);
+        Assert.Equal("Customer Name", GeneratedNameColumn.Header);
+        Assert.True(GeneratedQuantityColumn.IsReadOnly);
+        Assert.Equal("Alpha", Grid.DataAdapter.GetValue(0, GeneratedNameColumn));
+    }
+    /// <summary>
+    /// Verifies Id-column visibility policy during auto-generation.
+    /// </summary>
+    [Fact]
+    public void ItemsSource_WithHiddenIdColumns_HidesGeneratedIdColumns()
+    {
+        List<RowWithIds> Rows = new()
+        {
+            new() { Id = 1, CustomerId = 2, Name = "Alpha" },
+        };
+        GroupGrid Grid = new()
+        {
+            AreIdColumnsVisible = false,
+            AutoGenerateColumns = true,
+            ItemsSource = Rows,
+        };
+
+        Assert.False(Column(Grid, nameof(RowWithIds.Id)).IsVisible);
+        Assert.False(Column(Grid, nameof(RowWithIds.CustomerId)).IsVisible);
+        Assert.True(Column(Grid, nameof(RowWithIds.Name)).IsVisible);
     }
 }
