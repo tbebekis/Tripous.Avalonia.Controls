@@ -35,6 +35,8 @@ Current implemented v1 feature map for `GroupGrid`.
   - `GroupGridLookupColumn`
 - Column width and minimum width.
 - Column visibility.
+- Grid-level `AreIdColumnsVisible` policy for columns named `Id` or ending with `Id`, case-insensitively.
+- Grid-level by-name APIs for column visibility and read-only state.
 - Column display formatting.
 - Date column edit formatting through `EditFormat`.
 - Column horizontal text alignment.

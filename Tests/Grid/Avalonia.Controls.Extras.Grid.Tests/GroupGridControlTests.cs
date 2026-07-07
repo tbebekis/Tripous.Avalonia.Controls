@@ -144,4 +144,68 @@ public class GroupGridControlTests
         Assert.Equal("Alpha", Snapshot.GetDataRows()[0].Cells.First(Cell => Cell.Column.Name == nameof(GridTestRow.Name)).Text);
         Assert.Equal("sum=8", Snapshot.TotalSummaryCells.First(Cell => Cell.Column.Name == nameof(GridTestRow.Quantity)).Text);
     }
+    /// <summary>
+    /// Verifies the public Id-column visibility policy.
+    /// </summary>
+    [Fact]
+    public void AreIdColumnsVisible_WithIdColumnNames_HidesAndShowsIdColumns()
+    {
+        GroupGrid Grid = new();
+        GroupGridColumn IdColumn = new GroupGridTextColumn { Name = "Id" };
+        GroupGridColumn CustomerIdColumn = new GroupGridTextColumn { Name = "CustomerId" };
+        GroupGridColumn LowerCaseIdColumn = new GroupGridTextColumn { Name = "orderid" };
+        GroupGridColumn NameColumn = new GroupGridTextColumn { Name = "Name" };
+        Grid.Columns.Add(IdColumn);
+        Grid.Columns.Add(CustomerIdColumn);
+        Grid.Columns.Add(NameColumn);
+
+        Grid.AreIdColumnsVisible = false;
+        Grid.Columns.Add(LowerCaseIdColumn);
+
+        Assert.False(IdColumn.IsVisible);
+        Assert.False(CustomerIdColumn.IsVisible);
+        Assert.False(LowerCaseIdColumn.IsVisible);
+        Assert.True(NameColumn.IsVisible);
+
+        Grid.AreIdColumnsVisible = true;
+
+        Assert.True(IdColumn.IsVisible);
+        Assert.True(CustomerIdColumn.IsVisible);
+        Assert.True(LowerCaseIdColumn.IsVisible);
+        Assert.True(NameColumn.IsVisible);
+    }
+    /// <summary>
+    /// Verifies by-name column visibility API.
+    /// </summary>
+    [Fact]
+    public void SetColumnVisibleAndSetColumnsVisible_WithFieldNames_ChangeVisibility()
+    {
+        GroupGrid Grid = CreateGrid(CreateRows());
+
+        Assert.True(Grid.SetColumnVisible(nameof(GridTestRow.Name), false));
+        Assert.False(Column(Grid, nameof(GridTestRow.Name)).IsVisible);
+        Assert.True(Grid.SetColumnsVisible(new[] { nameof(GridTestRow.Quantity), nameof(GridTestRow.Amount) }, false));
+        Assert.False(Column(Grid, nameof(GridTestRow.Quantity)).IsVisible);
+        Assert.False(Column(Grid, nameof(GridTestRow.Amount)).IsVisible);
+        Assert.True(Grid.SetColumnsVisible(new[] { nameof(GridTestRow.Name), nameof(GridTestRow.Quantity) }, true));
+        Assert.True(Column(Grid, nameof(GridTestRow.Name)).IsVisible);
+        Assert.True(Column(Grid, nameof(GridTestRow.Quantity)).IsVisible);
+    }
+    /// <summary>
+    /// Verifies by-name column read-only API.
+    /// </summary>
+    [Fact]
+    public void SetColumnReadOnlyAndSetColumnsReadOnly_WithFieldNames_ChangeReadOnlyState()
+    {
+        GroupGrid Grid = CreateGrid(CreateRows());
+
+        Assert.True(Grid.SetColumnReadOnly(nameof(GridTestRow.Name), true));
+        Assert.True(Column(Grid, nameof(GridTestRow.Name)).IsReadOnly);
+        Assert.True(Grid.SetColumnsReadOnly(new[] { nameof(GridTestRow.Quantity), nameof(GridTestRow.Amount) }, true));
+        Assert.True(Column(Grid, nameof(GridTestRow.Quantity)).IsReadOnly);
+        Assert.True(Column(Grid, nameof(GridTestRow.Amount)).IsReadOnly);
+        Assert.True(Grid.SetColumnsReadOnly(new[] { nameof(GridTestRow.Name), nameof(GridTestRow.Quantity) }, false));
+        Assert.False(Column(Grid, nameof(GridTestRow.Name)).IsReadOnly);
+        Assert.False(Column(Grid, nameof(GridTestRow.Quantity)).IsReadOnly);
+    }
 }

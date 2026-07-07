@@ -142,6 +142,7 @@ public class GroupGrid: Control
     bool fIsColumnHeadersVisible = true;
     bool fIsGroupPanelVisible = true;
     bool fIsTotalsSummaryVisible = true;
+    bool fAreIdColumnsVisible = true;
 
     // ● toolbar state
     GroupGridToolButton fPointerOverToolButton;
@@ -229,6 +230,11 @@ public class GroupGrid: Control
         UpdateViewport(Bounds.Size);
         InvalidateVisual();
     }
+    void Engine_ColumnsChanged(object Sender, EventArgs Args)
+    {
+        ApplyIdColumnsVisibility();
+        Engine_Changed(Sender, Args);
+    }
     void Engine_InsertingRow(object Sender, GroupGridRowOperationEventArgs Args)
     {
         InsertingRow?.Invoke(this, Args);
@@ -256,7 +262,7 @@ public class GroupGrid: Control
 
         Engine.DataAdapterChanged += Engine_Changed;
         Engine.DataChanged += Engine_Changed;
-        Engine.ColumnsChanged += Engine_Changed;
+        Engine.ColumnsChanged += Engine_ColumnsChanged;
         Engine.GroupColumnsChanged += Engine_Changed;
         Engine.VisibleNodesChanged += Engine_Changed;
         Engine.CurrentCellChanged += Engine_Changed;
@@ -280,7 +286,7 @@ public class GroupGrid: Control
 
         Engine.DataAdapterChanged -= Engine_Changed;
         Engine.DataChanged -= Engine_Changed;
-        Engine.ColumnsChanged -= Engine_Changed;
+        Engine.ColumnsChanged -= Engine_ColumnsChanged;
         Engine.GroupColumnsChanged -= Engine_Changed;
         Engine.VisibleNodesChanged -= Engine_Changed;
         Engine.CurrentCellChanged -= Engine_Changed;
@@ -337,6 +343,30 @@ public class GroupGrid: Control
             throw new ArgumentNullException(nameof(Button));
 
         Button.Alignment = Alignment;
+    }
+
+    // ● column visibility helpers
+    GroupGridColumn FindColumn(string FieldName)
+    {
+        return string.IsNullOrWhiteSpace(FieldName) || fEngine == null
+            ? null
+            : fEngine.Columns.FirstOrDefault(Column => string.Equals(Column.Name, FieldName, StringComparison.OrdinalIgnoreCase));
+    }
+    bool IsIdColumn(GroupGridColumn Column)
+    {
+        string Name = Column == null ? string.Empty : Column.Name;
+        return !string.IsNullOrWhiteSpace(Name)
+               && (string.Equals(Name, "Id", StringComparison.OrdinalIgnoreCase)
+                   || Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase));
+    }
+    void ApplyIdColumnsVisibility()
+    {
+        if (fEngine == null)
+            return;
+
+        foreach (GroupGridColumn Column in fEngine.Columns.Where(IsIdColumn).ToList())
+            if (Column.IsVisible != fAreIdColumnsVisible)
+                fEngine.SetColumnVisible(Column, fAreIdColumnsVisible);
     }
     bool SetBandVisible(ref bool Field, bool Value)
     {
@@ -3464,6 +3494,61 @@ public class GroupGrid: Control
         CancelCellEdit();
         return fEngine.SetColumnVisible(Column, IsVisible);
     }
+    /// <summary>
+    /// Shows or hides a column by field name.
+    /// </summary>
+    /// <param name="FieldName">The column field name.</param>
+    /// <param name="IsVisible">True to show the column; false to hide it.</param>
+    /// <returns>True if the column visibility changed; otherwise, false.</returns>
+    public bool SetColumnVisible(string FieldName, bool IsVisible)
+    {
+        return SetColumnVisible(FindColumn(FieldName), IsVisible);
+    }
+    /// <summary>
+    /// Shows or hides columns by field name.
+    /// </summary>
+    /// <param name="FieldNames">The column field names.</param>
+    /// <param name="IsVisible">True to show the columns; false to hide them.</param>
+    /// <returns>True if any column visibility changed; otherwise, false.</returns>
+    public bool SetColumnsVisible(string[] FieldNames, bool IsVisible)
+    {
+        bool Result = false;
+        foreach (string FieldName in FieldNames ?? Array.Empty<string>())
+            Result = SetColumnVisible(FieldName, IsVisible) || Result;
+
+        return Result;
+    }
+    /// <summary>
+    /// Sets a column read-only state by field name.
+    /// </summary>
+    /// <param name="FieldName">The column field name.</param>
+    /// <param name="IsReadOnly">True to make the column read-only; false to make it editable.</param>
+    /// <returns>True if the column read-only state changed; otherwise, false.</returns>
+    public bool SetColumnReadOnly(string FieldName, bool IsReadOnly)
+    {
+        GroupGridColumn Column = FindColumn(FieldName);
+        if (Column == null || Column.IsReadOnly == IsReadOnly)
+            return false;
+
+        CancelCellEdit();
+        Column.IsReadOnly = IsReadOnly;
+        InvalidateVisual();
+        return true;
+    }
+    /// <summary>
+    /// Sets columns read-only state by field name.
+    /// </summary>
+    /// <param name="FieldNames">The column field names.</param>
+    /// <param name="IsReadOnly">True to make the columns read-only; false to make them editable.</param>
+    /// <returns>True if any column read-only state changed; otherwise, false.</returns>
+    public bool SetColumnsReadOnly(string[] FieldNames, bool IsReadOnly)
+    {
+        bool Result = false;
+        foreach (string FieldName in FieldNames ?? Array.Empty<string>())
+            Result = SetColumnReadOnly(FieldName, IsReadOnly) || Result;
+
+        return Result;
+    }
 
     // ● sorting and filtering API
     /// <summary>
@@ -3779,6 +3864,7 @@ public class GroupGrid: Control
             DetachEngine(fEngine);
             fEngine = value;
             AttachEngine(fEngine);
+            ApplyIdColumnsVisibility();
             InvalidateMeasure();
             InvalidateVisual();
         }
@@ -4002,6 +4088,22 @@ public class GroupGrid: Control
     {
         get => fIsTotalsSummaryVisible;
         set => SetBandVisible(ref fIsTotalsSummaryVisible, value);
+    }
+    /// <summary>
+    /// Gets or sets a value indicating whether columns named Id or ending with Id are visible.
+    /// </summary>
+    public bool AreIdColumnsVisible
+    {
+        get => fAreIdColumnsVisible;
+        set
+        {
+            if (fAreIdColumnsVisible == value)
+                return;
+
+            fAreIdColumnsVisible = value;
+            ApplyIdColumnsVisibility();
+            InvalidateVisual();
+        }
     }
     /// <summary>
     /// Gets or sets a value indicating whether the default insert toolbar button is visible.

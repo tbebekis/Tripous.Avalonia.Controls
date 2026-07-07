@@ -255,4 +255,78 @@ public class GroupGridEngineTests
 
         Assert.False(Engine.HasCurrentCell);
     }
+    /// <summary>
+    /// Verifies row insertion through the engine command API.
+    /// </summary>
+    [Fact]
+    public void InsertRow_WhenAllowed_InsertsRowAndMovesCurrentCell()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGridEngine Engine = CreateEngine(Rows);
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        bool Inserted = false;
+        Engine.RowInserted += (Sender, Args) => Inserted = true;
+        Assert.True(Engine.SetCurrentCell(0, NameColumn));
+
+        Assert.True(Engine.InsertRow());
+
+        Assert.True(Inserted);
+        Assert.Equal(5, Rows.Count);
+        Assert.Equal(1, Engine.CurrentRowIndex);
+        Assert.True(Engine.IsSelectedRow(1));
+    }
+    /// <summary>
+    /// Verifies row insertion cancellation.
+    /// </summary>
+    [Fact]
+    public void InsertRow_WhenCanceled_DoesNotInsertRow()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGridEngine Engine = CreateEngine(Rows);
+        Engine.InsertingRow += (Sender, Args) => Args.Cancel = true;
+
+        Assert.False(Engine.InsertRow());
+
+        Assert.Equal(4, Rows.Count);
+        Assert.False(Engine.HasCurrentCell);
+    }
+    /// <summary>
+    /// Verifies row deletion through the engine command API.
+    /// </summary>
+    [Fact]
+    public void DeleteCurrentRow_WhenAllowed_DeletesRowAndClearsCellState()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGridEngine Engine = CreateEngine(Rows);
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        bool Deleted = false;
+        Engine.RowDeleted += (Sender, Args) => Deleted = true;
+        Assert.True(Engine.SetCurrentCell(1, NameColumn));
+        Assert.True(Engine.SelectCurrentCell());
+
+        Assert.True(Engine.DeleteCurrentRow());
+
+        Assert.True(Deleted);
+        Assert.Equal(3, Rows.Count);
+        Assert.Equal("Gamma", Rows[1].Name);
+        Assert.False(Engine.HasCurrentCell);
+        Assert.False(Engine.HasSelectedCell);
+    }
+    /// <summary>
+    /// Verifies row deletion cancellation.
+    /// </summary>
+    [Fact]
+    public void DeleteCurrentRow_WhenCanceled_DoesNotDeleteRow()
+    {
+        ObservableCollection<GridTestRow> Rows = CreateRows();
+        GroupGridEngine Engine = CreateEngine(Rows);
+        GroupGridColumn NameColumn = Column(Engine, nameof(GridTestRow.Name));
+        Engine.DeletingRow += (Sender, Args) => Args.Cancel = true;
+        Assert.True(Engine.SetCurrentCell(1, NameColumn));
+
+        Assert.False(Engine.DeleteCurrentRow());
+
+        Assert.Equal(4, Rows.Count);
+        Assert.Equal(1, Engine.CurrentRowIndex);
+    }
 }
