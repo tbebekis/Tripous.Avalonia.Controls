@@ -226,3 +226,8 @@ Current implemented v1 feature map for `GroupGrid`.
 ## V2 Roadmap
 
 - Typed filter descriptors beyond the current text-based column filters.
+
+## License
+
+Released under the MIT License.
+See LICENSE for details.
