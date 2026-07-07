@@ -661,13 +661,15 @@ The first demo should prove:
 
 No Tripous data should appear in the demo.
 
-## Open Decisions
+## Resolved Decisions
 
-- Exact namespace for public types.
-- Whether core contracts live under `Avalonia.Controls` or `Avalonia.Controls.Extras`.
-- Whether row identity is index-based, object-based, or adapter-defined.
-- Whether cell values use `object` or typed accessors internally.
-- Whether V1 requires row virtualization.
-- How much of Avalonia styling/template infrastructure the control should expose from day one.
-- Whether column descriptors should derive from `AvaloniaObject`.
-- Whether the grid should use item containers or draw cells itself.
+These early open decisions are resolved in the v1 implementation.
+
+- Public grid types live under the `Avalonia.Controls` namespace.
+- Core contracts, including `IGroupGridDataAdapter`, also live under `Avalonia.Controls`.
+- Row operations are adapter-row-index based. The adapter also exposes `GetRow(int RowIndex)` for access to the backing source object.
+- Cell values use `object` accessors in the adapter contract. Columns provide `ValueType`, formatting, parsing, and type-specific behavior.
+- V1 uses a virtual body viewport with projected visible rows and custom vertical/horizontal scrolling.
+- V1 exposes Avalonia styled brush properties for theming, but the control is not a `TemplatedControl`.
+- Column descriptors are plain classes and do not derive from `AvaloniaObject`.
+- The grid custom-renders cells. Real Avalonia controls are created only for in-place editing and editor drop-downs.
