@@ -149,6 +149,27 @@ public class GroupGridControlTests
         }
     }
     /// <summary>
+    /// Verifies settings load returns false when the full file path does not exist.
+    /// </summary>
+    [Fact]
+    public void LoadSettings_WithMissingFullFilePath_ReturnsFalse()
+    {
+        string FilePath = TempPath("json");
+        GroupGrid Grid = CreateGrid(CreateRows());
+
+        Assert.False(Grid.LoadSettings(FilePath));
+    }
+    /// <summary>
+    /// Verifies settings save rejects relative file paths.
+    /// </summary>
+    [Fact]
+    public void SaveSettings_WithRelativeFilePath_Throws()
+    {
+        GroupGrid Grid = CreateGrid(CreateRows());
+
+        Assert.Throws<ArgumentException>(() => Grid.SaveSettings("settings.json"));
+    }
+    /// <summary>
     /// Verifies export snapshot content from the current visible projection.
     /// </summary>
     [Fact]

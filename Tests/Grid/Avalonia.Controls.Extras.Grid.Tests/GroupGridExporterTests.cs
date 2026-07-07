@@ -8,6 +8,20 @@ namespace Avalonia.Controls.Extras.Grid.Tests;
 /// </summary>
 public class GroupGridExporterTests
 {
+    // ● private types
+    class TestExporter: GroupGridExporter
+    {
+        /// <inheritdoc />
+        public override void Export(GroupGrid Grid, GroupGridExportSnapshot Snapshot, string FilePath)
+        {
+            WriteText(FilePath, Snapshot.Columns.Count.ToString());
+        }
+        /// <inheritdoc />
+        public override string Name => "Test";
+        /// <inheritdoc />
+        public override string DefaultExtension => "test";
+    }
+
     // ● private methods
     GroupGridExportSnapshot CreateSnapshot()
     {
@@ -88,6 +102,42 @@ public class GroupGridExporterTests
 
             Assert.Contains("<table>", Text);
             Assert.Contains("Alpha, &quot;One&quot;", Text);
+        }
+        finally
+        {
+            if (File.Exists(FilePath))
+                File.Delete(FilePath);
+        }
+    }
+    /// <summary>
+    /// Verifies exporter registry instance and factory registration.
+    /// </summary>
+    [Fact]
+    public void ExporterRegistry_WithInstanceAndFactory_ReturnsRegisteredExporters()
+    {
+        GroupGridExporter Instance = new TestExporter();
+
+        GroupGridExporters.Register(Instance);
+        GroupGridExporters.Register(() => new TestExporter());
+        IReadOnlyList<GroupGridExporter> Exporters = GroupGridExporters.CreateExporters();
+
+        Assert.Contains(Exporters, Exporter => ReferenceEquals(Exporter, Instance));
+        Assert.Contains(Exporters, Exporter => Exporter.Name == "Test" && !ReferenceEquals(Exporter, Instance));
+    }
+    /// <summary>
+    /// Verifies save export uses the selected exporter and current snapshot.
+    /// </summary>
+    [Fact]
+    public void SaveExport_WithExporter_WritesExportFile()
+    {
+        string FilePath = TempPath("test");
+        try
+        {
+            GroupGrid Grid = new();
+            Grid.Columns.Add(new GroupGridTextColumn { Name = "Name" });
+            Grid.SaveExport(new TestExporter(), FilePath);
+
+            Assert.Equal("1", File.ReadAllText(FilePath));
         }
         finally
         {
