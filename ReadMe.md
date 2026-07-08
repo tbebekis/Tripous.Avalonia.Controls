@@ -1,3 +1,18 @@
+> [!IMPORTANT]
+> ## Repository Moved
+>
+> Development of **Tripous.Avalonia.Controls** has moved to the **Tripous.Avalon** repository:
+>
+> **https://github.com/tbebekis/Tripous.Avalon**
+>
+> The project is **still developed as a completely independent Avalonia controls library** and has **no dependency on the Tripous framework or any other external library**.
+>
+> It now lives inside the Tripous.Avalon repository solely to simplify development, continuous integration (CI), documentation generation, and future maintenance. It will continue to evolve as a standalone library and will be released as an independent NuGet package.
+>
+> **Licensing**
+>
+> Although the project is now hosted inside the Tripous.Avalon repository, **Tripous.Avalonia.Controls continues to be licensed under the MIT License**. The remainder of the Tripous.Avalon repository is licensed under the **Tripous License**. Please refer to the corresponding `LICENSE` files for details.
+
 # Tripous.Avalonia.Controls
 
 Reusable Avalonia controls with no external dependencies.
