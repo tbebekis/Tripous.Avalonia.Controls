@@ -222,7 +222,7 @@ public partial class MainWindow : Window
     /// <returns>The demo output folder path.</returns>
     private string GetDemoFolderPath()
     {
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Avalonia.Controls.Extras", "Demo00.GroupGrid");
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tripous.Avalonia.Controls", "Demo00.GroupGrid");
     }
     /// <summary>
     /// Sets the status text.

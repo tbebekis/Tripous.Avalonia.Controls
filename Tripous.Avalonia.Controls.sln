@@ -1,6 +1,6 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Avalonia.Controls.Extras", "Avalonia.Controls.Extras\Avalonia.Controls.Extras.csproj", "{E94EA862-007D-476C-837F-1E7B4C215582}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tripous.Avalonia.Controls", "Tripous.Avalonia.Controls\Tripous.Avalonia.Controls.csproj", "{E94EA862-007D-476C-837F-1E7B4C215582}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Demos", "Demos", "{D04810A1-3D57-4602-B942-4B0456F8C559}"
 EndProject
@@ -10,7 +10,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{3C37C09E
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Grid", "Grid", "{62DC2404-44B8-4B7C-98B4-1BC7B90A962B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Avalonia.Controls.Extras.Grid.Tests", "Tests\Grid\Avalonia.Controls.Extras.Grid.Tests\Avalonia.Controls.Extras.Grid.Tests.csproj", "{B2DCFCE9-2178-4D2D-8B4B-CFCB1F2B8826}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tripous.Avalonia.Controls.Grid.Tests", "Tests\Grid\Tripous.Avalonia.Controls.Grid.Tests\Tripous.Avalonia.Controls.Grid.Tests.csproj", "{B1B888EF-AE0D-40BF-BF5C-930FF0851373}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -26,14 +26,15 @@ Global
 		{BB5E8FA0-C3D1-474F-AB55-1EDBA0F6AA8B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BB5E8FA0-C3D1-474F-AB55-1EDBA0F6AA8B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BB5E8FA0-C3D1-474F-AB55-1EDBA0F6AA8B}.Release|Any CPU.Build.0 = Release|Any CPU
-		{B2DCFCE9-2178-4D2D-8B4B-CFCB1F2B8826}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{B2DCFCE9-2178-4D2D-8B4B-CFCB1F2B8826}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{B2DCFCE9-2178-4D2D-8B4B-CFCB1F2B8826}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{B2DCFCE9-2178-4D2D-8B4B-CFCB1F2B8826}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1B888EF-AE0D-40BF-BF5C-930FF0851373}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1B888EF-AE0D-40BF-BF5C-930FF0851373}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1B888EF-AE0D-40BF-BF5C-930FF0851373}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1B888EF-AE0D-40BF-BF5C-930FF0851373}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{BB5E8FA0-C3D1-474F-AB55-1EDBA0F6AA8B} = {D04810A1-3D57-4602-B942-4B0456F8C559}
 		{62DC2404-44B8-4B7C-98B4-1BC7B90A962B} = {3C37C09E-A0ED-484F-8B2E-CC4321F672C8}
-		{B2DCFCE9-2178-4D2D-8B4B-CFCB1F2B8826} = {62DC2404-44B8-4B7C-98B4-1BC7B90A962B}
+		{B1B888EF-AE0D-40BF-BF5C-930FF0851373} = {62DC2404-44B8-4B7C-98B4-1BC7B90A962B}
 	EndGlobalSection
 EndGlobal
+
